@@ -2,10 +2,12 @@ import { useEffect, useState } from "react";
 import apiClient from "./api/client";
 import RegexPlayground from "./pages/RegexPlayground";
 import GrammarTool from "./pages/GrammarTool";
+import DfaMinimizer from "./pages/DfaMinimizer";
 
 const TABS = [
   { id: "regex", label: "Regex Playground", Component: RegexPlayground },
   { id: "grammar", label: "Grammar Tool", Component: GrammarTool },
+  { id: "minimizer", label: "DFA Minimizer", Component: DfaMinimizer },
 ];
 
 function App() {
