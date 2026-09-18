@@ -29,12 +29,24 @@ from app.automata.regex_parser import (
     Epsilon,
     Leaf,
     Node,
+    RegexSyntaxError,
     Star,
     Union,
     parse_regex,
 )
 
-END_MARKER = "#"
+END_MARKER = "\ue000"  # Unicode Private Use Area, never a real regex symbol
+# Previously "#": that collided with any regex whose alphabet legitimately
+# includes '#' (e.g. a character class covering '#' through '~', which the
+# toy language's STRING token needs in Milestone 7). When a pattern's own
+# alphabet contained '#', the algorithm couldn't tell the real end marker
+# apart from the user's literal '#', and silently built the wrong DFA
+# instead of erroring. The Private Use Area is reserved by the Unicode
+# standard for exactly this kind of internal, application-specific use,
+# so no real regex should ever need to match it. build_direct_dfa also
+# checks for this explicitly below, so if some future pattern ever does
+# need the end marker's own character, it fails loudly instead of quietly
+# producing a wrong answer.
 
 # Cached per-node attributes, keyed by id(node) since AST nodes aren't hashable
 # and two structurally-identical nodes (e.g. after clone()) must stay distinct.
@@ -134,12 +146,38 @@ def compute_followpos(
         raise TypeError(f"Unknown node type: {type(node)!r}")
 
 
+def _contains_symbol(node: Node, symbol: str) -> bool:
+    """True if `symbol` appears as a literal leaf anywhere in the tree.
+    Used only to guard against the end-marker collision described above.
+    """
+    if isinstance(node, Leaf):
+        return node.symbol == symbol
+    if isinstance(node, Epsilon):
+        return False
+    if isinstance(node, Concat) or isinstance(node, Union):
+        return _contains_symbol(node.left, symbol) or _contains_symbol(node.right, symbol)
+    if isinstance(node, Star):
+        return _contains_symbol(node.child, symbol)
+    raise TypeError(f"Unknown node type: {type(node)!r}")
+
+
 def build_direct_dfa(pattern: str, end_marker: str = END_MARKER) -> DFA:
     """Build a DFA for `pattern` using the direct (followpos) method.
 
-    Raises RegexSyntaxError (from regex_parser) if `pattern` is invalid.
+    Raises RegexSyntaxError (from regex_parser) if `pattern` is invalid,
+    or if `pattern`'s own alphabet already contains `end_marker` (which
+    would make it impossible to tell the real end marker apart from a
+    literal occurrence of the same character, see the END_MARKER note
+    above for why this matters).
     """
     tree = parse_regex(pattern)
+
+    if _contains_symbol(tree, end_marker):
+        raise RegexSyntaxError(
+            f"Pattern's alphabet already contains the end marker {end_marker!r}; "
+            "pass a different end_marker to build_direct_dfa."
+        )
+
     augmented = Concat(tree, Leaf(symbol=end_marker))
 
     position_symbol = assign_positions(augmented)

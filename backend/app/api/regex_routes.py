@@ -29,6 +29,7 @@ from app.automata import (
     build_thompson_nfa,
     compare_construction_methods,
 )
+from app.automata.minimization import minimize_dfa
 
 router = APIRouter()
 
@@ -56,6 +57,11 @@ class CompareRequest(BaseModel):
     # 10 runs keeps even the worst-case pattern (a wide character class)
     # under ~4 seconds while still smoothing out timing noise.
     runs: int = Field(default=10, ge=1, le=50)
+
+
+class MinimizeRequest(BaseModel):
+    pattern: str = Field(..., min_length=1, max_length=200)
+    method: Literal["direct", "indirect"] = "indirect"
 
 
 # ---------------------------------------------------------------------------
@@ -111,6 +117,15 @@ class CompareOut(BaseModel):
     direct_method: MethodStatsOut
     indirect_method: MethodStatsOut
     state_count_difference: int
+
+
+class MinimizeOut(BaseModel):
+    pattern: str
+    method: str
+    original: DFAOut
+    minimized: DFAOut
+    state_mapping: dict[str, int]  # original state index (as string) -> minimized state index
+    partition_trace: list[list[list[int]]]
 
 
 # ---------------------------------------------------------------------------
@@ -182,3 +197,28 @@ def compare_endpoint(request: CompareRequest) -> dict:
     except RegexSyntaxError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return result.to_dict()
+
+
+@router.post("/minimize", response_model=MinimizeOut)
+def minimize_endpoint(request: MinimizeRequest) -> dict:
+    """Build a DFA via the requested method, then minimize it with
+    partition refinement (Milestone 6). Defaults to the indirect method
+    since that's the one that actually benefits from minimization, the
+    direct method is already minimal by construction, minimizing it is
+    a no-op that's still useful as a "see, nothing changes" check.
+    """
+    build_fn = build_direct_dfa if request.method == "direct" else build_indirect_dfa
+    try:
+        dfa = build_fn(request.pattern)
+    except RegexSyntaxError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    result = minimize_dfa(dfa)
+    return {
+        "pattern": request.pattern,
+        "method": request.method,
+        "original": dfa.to_dict(),
+        "minimized": result.minimized.to_dict(),
+        "state_mapping": {str(k): v for k, v in result.state_mapping.items()},
+        "partition_trace": result.partition_trace,
+    }
