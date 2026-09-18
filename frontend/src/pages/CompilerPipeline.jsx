@@ -1,6 +1,6 @@
 import { useState } from "react";
 import AstTreeView from "../components/AstTreeView";
-import { analyzeSource, tokenizeSource } from "../api/compilerApi";
+import { generateTac, tokenizeSource } from "../api/compilerApi";
 import { extractErrorMessage } from "../api/client";
 
 const DEFAULT_SOURCE = `int x;
@@ -18,11 +18,14 @@ print(x);`;
 
 // This page grows one phase at a time: Milestone 7 added the lexer
 // section, Milestone 8 added syntax analysis (the AST), Milestone 9
-// adds semantic analysis (the symbol table and type checking) below
-// that. Milestone 10 and beyond each add their own section here, all
-// reading from the same source textarea, matching the PRD's tabbed
-// dashboard where every phase updates live from one piece of source
-// code.
+// added semantic analysis (the symbol table and type checking), and
+// Milestone 10 adds intermediate code (three-address code) below
+// that. /api/compiler/tac returns everything /api/compiler/analyze
+// does plus the TAC listing, so this page only needs that one call
+// (plus /tokenize for the raw token table). Milestone 11 and beyond
+// each add their own section here, all reading from the same source
+// textarea, matching the PRD's tabbed dashboard where every phase
+// updates live from one piece of source code.
 export default function CompilerPipeline() {
   const [source, setSource] = useState(DEFAULT_SOURCE);
   const [lexResult, setLexResult] = useState(null);
@@ -37,7 +40,7 @@ export default function CompilerPipeline() {
     try {
       const [lex, analyzed] = await Promise.all([
         tokenizeSource(source),
-        analyzeSource(source),
+        generateTac(source),
       ]);
       setLexResult(lex);
       setAnalysis(analyzed);
@@ -56,9 +59,9 @@ export default function CompilerPipeline() {
         <h1 className="text-2xl font-bold text-slate-800">Compiler Pipeline</h1>
         <p className="text-slate-600 text-sm mt-1">
           Write toy-language source code and watch it move through each
-          phase. Lexical, syntax, and semantic analysis are live now,
-          more phases (intermediate code and beyond) get added here as
-          they're built.
+          phase. Lexical, syntax, semantic, and intermediate-code
+          generation are all live now, more phases (optimization and
+          beyond) get added here as they're built.
         </p>
       </header>
 
@@ -248,6 +251,28 @@ export default function CompilerPipeline() {
                 ))}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {analysis && (
+        <div>
+          <h2 className="font-semibold text-slate-700 mb-2">
+            Intermediate code (three-address code)
+            <span className="ml-2 text-xs font-normal text-slate-500">
+              ({analysis.tac.length} instruction{analysis.tac.length === 1 ? "" : "s"})
+            </span>
+          </h2>
+          <div className="rounded-lg border border-slate-200 bg-white p-4 overflow-x-auto max-h-96">
+            <pre className="font-mono text-sm text-slate-800 leading-6">
+              {analysis.tac.length === 0
+                ? "(no instructions)"
+                : analysis.tac
+                    .map((instr) =>
+                      instr.op === "LABEL" ? instr.text : `    ${instr.text}`
+                    )
+                    .join("\n")}
+            </pre>
           </div>
         </div>
       )}

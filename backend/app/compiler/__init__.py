@@ -13,7 +13,9 @@ Milestone 9 (done): symbol_table.py is a scoped symbol table;
     checking every expression and statement (undeclared variables,
     redeclaration, type mismatches, call arity against a small table
     of built-in functions, see that module's docstring for why).
-Milestone 10: intermediate code generator (AST -> three-address code)
+Milestone 10 (done): tac.py defines the TAC instruction shape;
+    tac_generator.py walks the AST and emits three-address code,
+    lowering if/while to labels and jumps and calls to PARAM/CALL.
 Milestone 11: optimizer (constant folding, dead code elimination, CSE)
 Milestone 12: code generator (TAC -> stack-machine / assembly output)
 """
@@ -43,6 +45,8 @@ from app.compiler.semantic_analyzer import (
     analyze,
 )
 from app.compiler.symbol_table import Symbol, SymbolTable
+from app.compiler.tac import TACInstr
+from app.compiler.tac_generator import TACGenerator, generate_tac
 from app.compiler.token_specs import KEYWORDS, TOKEN_SPECS
 
 __all__ = [
@@ -76,4 +80,7 @@ __all__ = [
     "analyze",
     "Symbol",
     "SymbolTable",
+    "TACInstr",
+    "TACGenerator",
+    "generate_tac",
 ]

@@ -14,3 +14,8 @@ export async function analyzeSource(source) {
   const { data } = await apiClient.post("/api/compiler/analyze", { source });
   return data;
 }
+
+export async function generateTac(source) {
+  const { data } = await apiClient.post("/api/compiler/tac", { source });
+  return data;
+}

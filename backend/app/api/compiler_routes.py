@@ -16,7 +16,7 @@ as each phase lands.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Optional
 
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
@@ -24,6 +24,7 @@ from pydantic import BaseModel, Field
 from app.compiler.lexer import tokenize
 from app.compiler.parser import parse
 from app.compiler.semantic_analyzer import analyze
+from app.compiler.tac_generator import generate_tac
 
 router = APIRouter()
 
@@ -134,4 +135,44 @@ def analyze_endpoint(request: SourceRequest) -> dict:
         "parse_errors": [e.to_dict() for e in parse_result.errors],
         "semantic_errors": [e.to_dict() for e in semantic_result.errors],
         "symbols": [s.to_dict() for s in semantic_result.symbols],
+    }
+
+
+class TACInstrOut(BaseModel):
+    op: str
+    arg1: Optional[str] = None
+    arg2: Optional[str] = None
+    result: Optional[str] = None
+    text: str
+
+
+class GenerateTacOut(BaseModel):
+    ast: dict[str, Any]
+    lex_errors: list[LexErrorOut]
+    parse_errors: list[ParseErrorOut]
+    semantic_errors: list[SemanticErrorOut]
+    symbols: list[SymbolOut]
+    tac: list[TACInstrOut]
+
+
+@router.post("/tac", response_model=GenerateTacOut)
+def tac_endpoint(request: SourceRequest) -> dict:
+    """Run the full front end plus three-address code generation on
+    `source`. TAC is generated from whatever AST the parser produced
+    regardless of semantic errors, so the dashboard can still show
+    what the intermediate code would look like even for a program
+    that doesn't fully type-check, useful for seeing the effect of a
+    single mistake without losing the rest of the picture.
+    """
+    lex_result = tokenize(request.source)
+    parse_result = parse(lex_result.tokens)
+    semantic_result = analyze(parse_result.program)
+    instructions = generate_tac(parse_result.program)
+    return {
+        "ast": parse_result.program.to_dict(),
+        "lex_errors": [e.to_dict() for e in lex_result.errors],
+        "parse_errors": [e.to_dict() for e in parse_result.errors],
+        "semantic_errors": [e.to_dict() for e in semantic_result.errors],
+        "symbols": [s.to_dict() for s in semantic_result.symbols],
+        "tac": [i.to_dict() for i in instructions],
     }
