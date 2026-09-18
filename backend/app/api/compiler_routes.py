@@ -5,9 +5,13 @@ Mounted at /api/compiler in app.main, so the full paths are:
     POST /api/compiler/tokenize -> tokens and lexical errors
     POST /api/compiler/parse    -> the AST, plus both lexical and
                                      syntax errors, for a source snippet
+    POST /api/compiler/analyze -> the above, plus the symbol table and
+                                     semantic errors (type checking,
+                                     undeclared variables, redeclaration,
+                                     call arity)
 
-Later milestones (semantic analyzer, IR, optimizer, codegen) add their
-own endpoints here as each phase lands.
+Later milestones (IR, optimizer, codegen) add their own endpoints here
+as each phase lands.
 """
 
 from __future__ import annotations
@@ -19,6 +23,7 @@ from pydantic import BaseModel, Field
 
 from app.compiler.lexer import tokenize
 from app.compiler.parser import parse
+from app.compiler.semantic_analyzer import analyze
 
 router = APIRouter()
 
@@ -87,4 +92,46 @@ def parse_endpoint(request: SourceRequest) -> dict:
         "ast": parse_result.program.to_dict(),
         "lex_errors": [e.to_dict() for e in lex_result.errors],
         "parse_errors": [e.to_dict() for e in parse_result.errors],
+    }
+
+
+class SemanticErrorOut(BaseModel):
+    message: str
+    line: int
+    column: int
+
+
+class SymbolOut(BaseModel):
+    name: str
+    type: str
+    line: int
+    column: int
+    scope_depth: int
+
+
+class AnalyzeOut(BaseModel):
+    ast: dict[str, Any]
+    lex_errors: list[LexErrorOut]
+    parse_errors: list[ParseErrorOut]
+    semantic_errors: list[SemanticErrorOut]
+    symbols: list[SymbolOut]
+
+
+@router.post("/analyze", response_model=AnalyzeOut)
+def analyze_endpoint(request: SourceRequest) -> dict:
+    """Run the full front end, lex, parse, and semantic analysis, on
+    `source`. Semantic analysis still runs over whatever AST the
+    parser managed to build, even if the lexer or parser hit errors,
+    since a program with one syntax error elsewhere can still have
+    plenty of type-correct code worth checking.
+    """
+    lex_result = tokenize(request.source)
+    parse_result = parse(lex_result.tokens)
+    semantic_result = analyze(parse_result.program)
+    return {
+        "ast": parse_result.program.to_dict(),
+        "lex_errors": [e.to_dict() for e in lex_result.errors],
+        "parse_errors": [e.to_dict() for e in parse_result.errors],
+        "semantic_errors": [e.to_dict() for e in semantic_result.errors],
+        "symbols": [s.to_dict() for s in semantic_result.symbols],
     }
