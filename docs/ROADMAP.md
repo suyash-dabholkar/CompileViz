@@ -20,7 +20,7 @@ as they're completed.
       FIRST/FOLLOW sets and LL(1) table generation. Tag `v0.3`.
 - [x] **Milestone 6 — DFA minimization** (`feature/dfa-minimization`)
       Partition refinement on top of the Milestone 2 DFA engine.
-- [ ] **Milestone 7 — Lexer** (`feature/lexer`)
+- [x] **Milestone 7 — Lexer** (`feature/lexer`)
       Tokenizes toy-language source using the Milestone 2 DFA engine.
 - [ ] **Milestone 8 — Parser and AST** (`feature/parser`)
       Built on the Milestone 5 grammar tool's LL(1) table.

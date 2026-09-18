@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { tokenizeSource } from "../api/compilerApi";
+import AstTreeView from "../components/AstTreeView";
+import { parseSource, tokenizeSource } from "../api/compilerApi";
 import { extractErrorMessage } from "../api/client";
 
 const DEFAULT_SOURCE = `int x;
@@ -14,27 +15,34 @@ while (x > 0) {
     x = x - 1;
 }`;
 
-// This page grows one phase at a time: Milestone 7 adds the lexer
-// section below. Milestone 8 (parser/AST), Milestone 9 (semantic
-// analysis), and so on each add their own section here, all reading
-// from the same source textarea, matching the PRD's tabbed dashboard
-// where every phase updates live from one piece of source code.
+// This page grows one phase at a time: Milestone 7 added the lexer
+// section, Milestone 8 adds syntax analysis (the AST) below it.
+// Milestone 9 (semantic analysis) and beyond each add their own
+// section here, all reading from the same source textarea, matching
+// the PRD's tabbed dashboard where every phase updates live from one
+// piece of source code.
 export default function CompilerPipeline() {
   const [source, setSource] = useState(DEFAULT_SOURCE);
-  const [result, setResult] = useState(null);
+  const [lexResult, setLexResult] = useState(null);
+  const [parseResult, setParseResult] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  async function handleTokenize(e) {
+  async function handleCompile(e) {
     e?.preventDefault();
     setLoading(true);
     setError(null);
     try {
-      const data = await tokenizeSource(source);
-      setResult(data);
+      const [lex, parsed] = await Promise.all([
+        tokenizeSource(source),
+        parseSource(source),
+      ]);
+      setLexResult(lex);
+      setParseResult(parsed);
     } catch (err) {
       setError(extractErrorMessage(err));
-      setResult(null);
+      setLexResult(null);
+      setParseResult(null);
     } finally {
       setLoading(false);
     }
@@ -46,12 +54,12 @@ export default function CompilerPipeline() {
         <h1 className="text-2xl font-bold text-slate-800">Compiler Pipeline</h1>
         <p className="text-slate-600 text-sm mt-1">
           Write toy-language source code and watch it move through each
-          phase. Lexical analysis is live now, more phases (parsing,
-          semantic analysis, and beyond) get added here as they're built.
+          phase. Lexical and syntax analysis are live now, more phases
+          (semantic analysis, and beyond) get added here as they're built.
         </p>
       </header>
 
-      <form onSubmit={handleTokenize} className="space-y-2">
+      <form onSubmit={handleCompile} className="space-y-2">
         <textarea
           value={source}
           onChange={(e) => setSource(e.target.value)}
@@ -64,7 +72,7 @@ export default function CompilerPipeline() {
           disabled={loading || !source.trim()}
           className="rounded-md bg-blue-700 px-4 py-2 text-white font-medium disabled:opacity-50"
         >
-          {loading ? "Tokenizing..." : "Tokenize"}
+          {loading ? "Compiling..." : "Compile"}
         </button>
       </form>
 
@@ -74,19 +82,19 @@ export default function CompilerPipeline() {
         </div>
       )}
 
-      {result && (
+      {lexResult && (
         <div>
           <h2 className="font-semibold text-slate-700 mb-2">
             Lexical analysis
             <span className="ml-2 text-xs font-normal text-slate-500">
-              ({result.tokens.length} tokens
-              {result.errors.length > 0 ? `, ${result.errors.length} error(s)` : ""})
+              ({lexResult.tokens.length} tokens
+              {lexResult.errors.length > 0 ? `, ${lexResult.errors.length} error(s)` : ""})
             </span>
           </h2>
 
-          {result.errors.length > 0 && (
+          {lexResult.errors.length > 0 && (
             <div className="mb-3 space-y-1">
-              {result.errors.map((err, i) => (
+              {lexResult.errors.map((err, i) => (
                 <div
                   key={i}
                   className="rounded-md border border-red-300 bg-red-50 px-3 py-1.5 text-sm text-red-700"
@@ -97,7 +105,7 @@ export default function CompilerPipeline() {
             </div>
           )}
 
-          <div className="overflow-x-auto rounded-lg border border-slate-200 max-h-96">
+          <div className="overflow-x-auto rounded-lg border border-slate-200 max-h-72">
             <table className="min-w-full text-sm">
               <thead className="bg-slate-100 sticky top-0">
                 <tr>
@@ -116,7 +124,7 @@ export default function CompilerPipeline() {
                 </tr>
               </thead>
               <tbody>
-                {result.tokens.map((token, i) => (
+                {lexResult.tokens.map((token, i) => (
                   <tr key={i} className="odd:bg-white even:bg-slate-50">
                     <td className="px-3 py-1.5 font-mono text-blue-700 border-b border-slate-100">
                       {token.type}
@@ -135,6 +143,34 @@ export default function CompilerPipeline() {
               </tbody>
             </table>
           </div>
+        </div>
+      )}
+
+      {parseResult && (
+        <div>
+          <h2 className="font-semibold text-slate-700 mb-2">
+            Syntax analysis
+            <span className="ml-2 text-xs font-normal text-slate-500">
+              {parseResult.parse_errors.length > 0
+                ? `(${parseResult.parse_errors.length} error(s))`
+                : "(no syntax errors)"}
+            </span>
+          </h2>
+
+          {parseResult.parse_errors.length > 0 && (
+            <div className="mb-3 space-y-1">
+              {parseResult.parse_errors.map((err, i) => (
+                <div
+                  key={i}
+                  className="rounded-md border border-red-300 bg-red-50 px-3 py-1.5 text-sm text-red-700"
+                >
+                  Line {err.line}, column {err.column}: {err.message}
+                </div>
+              ))}
+            </div>
+          )}
+
+          <AstTreeView ast={parseResult.ast} />
         </div>
       )}
     </div>
