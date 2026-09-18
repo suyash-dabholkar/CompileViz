@@ -1,4 +1,4 @@
-import apiClient from "./client";
+import apiClient, { extractErrorMessage } from "./client";
 
 // Thin wrappers around the Milestone 4 backend routes (app/api/regex_routes.py).
 // Each one returns response.data directly and lets errors (including the
@@ -37,18 +37,8 @@ export async function compareMethods(pattern, runs = 10) {
   return data;
 }
 
-/**
- * The backend returns FastAPI/Pydantic validation errors as
- * { detail: [...] } for a 422, or { detail: "message" } for a 400
- * raised explicitly (e.g. RegexSyntaxError). This normalizes both into
- * a single readable string for the UI.
- */
-export function extractErrorMessage(error) {
-  const detail = error?.response?.data?.detail;
-  if (!detail) return error?.message || "Something went wrong";
-  if (typeof detail === "string") return detail;
-  if (Array.isArray(detail)) {
-    return detail.map((d) => d.msg || JSON.stringify(d)).join("; ");
-  }
-  return JSON.stringify(detail);
-}
+// Re-exported so existing imports of extractErrorMessage from this file
+// (from Milestone 4's RegexPlayground.jsx) keep working unchanged, now
+// that the actual implementation lives in client.js and is shared with
+// grammarApi.js and any future feature's API module.
+export { extractErrorMessage };

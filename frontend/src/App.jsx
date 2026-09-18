@@ -1,12 +1,15 @@
 import { useEffect, useState } from "react";
 import apiClient from "./api/client";
 import RegexPlayground from "./pages/RegexPlayground";
+import GrammarTool from "./pages/GrammarTool";
 
-// Milestone 4: the regex playground is the first real page. As more
-// pages are added (grammar tool, DFA minimizer, compiler dashboard),
-// this is where simple tab navigation gets introduced, one page is
-// still simple enough not to need a router yet.
+const TABS = [
+  { id: "regex", label: "Regex Playground", Component: RegexPlayground },
+  { id: "grammar", label: "Grammar Tool", Component: GrammarTool },
+];
+
 function App() {
+  const [activeTab, setActiveTab] = useState(TABS[0].id);
   const [backendStatus, setBackendStatus] = useState("checking...");
 
   useEffect(() => {
@@ -36,9 +39,30 @@ function App() {
     };
   }, []);
 
+  const ActiveComponent = TABS.find((t) => t.id === activeTab).Component;
+
   return (
     <div className="min-h-screen bg-slate-50">
-      <RegexPlayground />
+      <nav className="bg-white border-b border-slate-200 px-6">
+        <div className="max-w-6xl mx-auto flex gap-1">
+          {TABS.map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
+                activeTab === tab.id
+                  ? "border-blue-700 text-blue-700"
+                  : "border-transparent text-slate-500 hover:text-slate-700"
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      </nav>
+
+      <ActiveComponent />
+
       <footer className="text-center text-xs text-slate-400 pb-4">
         backend: <span className="font-mono">{backendStatus}</span>
       </footer>
