@@ -23,8 +23,7 @@ unit tested on its own and reused by both the regex playground endpoint
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-
+from app.automata.dfa import DFA
 from app.automata.regex_parser import (
     Concat,
     Epsilon,
@@ -133,47 +132,6 @@ def compute_followpos(
         return
     else:
         raise TypeError(f"Unknown node type: {type(node)!r}")
-
-
-@dataclass
-class DFA:
-    """A DFA built directly from followpos, with states represented as
-    sets of regex positions (the textbook representation), but indexed
-    by integer for convenient transition lookups.
-    """
-
-    states: list[frozenset[int]]
-    start: int
-    accepting: set[int]
-    transitions: dict[tuple[int, str], int]
-    alphabet: list[str]
-    position_symbol: dict[int, str] = field(repr=False)
-
-    def match(self, text: str) -> bool:
-        """Simulate the DFA on `text`, returning whether it's accepted."""
-        current = self.start
-        for ch in text:
-            key = (current, ch)
-            if key not in self.transitions:
-                return False
-            current = self.transitions[key]
-        return current in self.accepting
-
-    def to_dict(self) -> dict:
-        """A JSON-friendly view of the DFA, used by the regex playground
-        API (Milestone 4) to send the diagram data to the frontend.
-        """
-        return {
-            "start": self.start,
-            "accepting": sorted(self.accepting),
-            "num_states": len(self.states),
-            "alphabet": self.alphabet,
-            "states": [sorted(s) for s in self.states],
-            "transitions": [
-                {"from": frm, "symbol": sym, "to": to}
-                for (frm, sym), to in sorted(self.transitions.items())
-            ],
-        }
 
 
 def build_direct_dfa(pattern: str, end_marker: str = END_MARKER) -> DFA:
