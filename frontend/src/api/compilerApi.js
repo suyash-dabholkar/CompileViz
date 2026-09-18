@@ -9,3 +9,8 @@ export async function parseSource(source) {
   const { data } = await apiClient.post("/api/compiler/parse", { source });
   return data;
 }
+
+export async function analyzeSource(source) {
+  const { data } = await apiClient.post("/api/compiler/analyze", { source });
+  return data;
+}

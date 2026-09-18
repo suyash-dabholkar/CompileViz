@@ -1,6 +1,6 @@
 import { useState } from "react";
 import AstTreeView from "../components/AstTreeView";
-import { parseSource, tokenizeSource } from "../api/compilerApi";
+import { analyzeSource, tokenizeSource } from "../api/compilerApi";
 import { extractErrorMessage } from "../api/client";
 
 const DEFAULT_SOURCE = `int x;
@@ -13,18 +13,20 @@ if (x > 10) {
 // a comment
 while (x > 0) {
     x = x - 1;
-}`;
+}
+print(x);`;
 
 // This page grows one phase at a time: Milestone 7 added the lexer
-// section, Milestone 8 adds syntax analysis (the AST) below it.
-// Milestone 9 (semantic analysis) and beyond each add their own
-// section here, all reading from the same source textarea, matching
-// the PRD's tabbed dashboard where every phase updates live from one
-// piece of source code.
+// section, Milestone 8 added syntax analysis (the AST), Milestone 9
+// adds semantic analysis (the symbol table and type checking) below
+// that. Milestone 10 and beyond each add their own section here, all
+// reading from the same source textarea, matching the PRD's tabbed
+// dashboard where every phase updates live from one piece of source
+// code.
 export default function CompilerPipeline() {
   const [source, setSource] = useState(DEFAULT_SOURCE);
   const [lexResult, setLexResult] = useState(null);
-  const [parseResult, setParseResult] = useState(null);
+  const [analysis, setAnalysis] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
@@ -33,16 +35,16 @@ export default function CompilerPipeline() {
     setLoading(true);
     setError(null);
     try {
-      const [lex, parsed] = await Promise.all([
+      const [lex, analyzed] = await Promise.all([
         tokenizeSource(source),
-        parseSource(source),
+        analyzeSource(source),
       ]);
       setLexResult(lex);
-      setParseResult(parsed);
+      setAnalysis(analyzed);
     } catch (err) {
       setError(extractErrorMessage(err));
       setLexResult(null);
-      setParseResult(null);
+      setAnalysis(null);
     } finally {
       setLoading(false);
     }
@@ -54,8 +56,9 @@ export default function CompilerPipeline() {
         <h1 className="text-2xl font-bold text-slate-800">Compiler Pipeline</h1>
         <p className="text-slate-600 text-sm mt-1">
           Write toy-language source code and watch it move through each
-          phase. Lexical and syntax analysis are live now, more phases
-          (semantic analysis, and beyond) get added here as they're built.
+          phase. Lexical, syntax, and semantic analysis are live now,
+          more phases (intermediate code and beyond) get added here as
+          they're built.
         </p>
       </header>
 
@@ -146,20 +149,20 @@ export default function CompilerPipeline() {
         </div>
       )}
 
-      {parseResult && (
+      {analysis && (
         <div>
           <h2 className="font-semibold text-slate-700 mb-2">
             Syntax analysis
             <span className="ml-2 text-xs font-normal text-slate-500">
-              {parseResult.parse_errors.length > 0
-                ? `(${parseResult.parse_errors.length} error(s))`
+              {analysis.parse_errors.length > 0
+                ? `(${analysis.parse_errors.length} error(s))`
                 : "(no syntax errors)"}
             </span>
           </h2>
 
-          {parseResult.parse_errors.length > 0 && (
+          {analysis.parse_errors.length > 0 && (
             <div className="mb-3 space-y-1">
-              {parseResult.parse_errors.map((err, i) => (
+              {analysis.parse_errors.map((err, i) => (
                 <div
                   key={i}
                   className="rounded-md border border-red-300 bg-red-50 px-3 py-1.5 text-sm text-red-700"
@@ -170,7 +173,82 @@ export default function CompilerPipeline() {
             </div>
           )}
 
-          <AstTreeView ast={parseResult.ast} />
+          <AstTreeView ast={analysis.ast} />
+        </div>
+      )}
+
+      {analysis && (
+        <div>
+          <h2 className="font-semibold text-slate-700 mb-2">
+            Semantic analysis
+            <span className="ml-2 text-xs font-normal text-slate-500">
+              {analysis.semantic_errors.length > 0
+                ? `(${analysis.semantic_errors.length} error(s))`
+                : "(no semantic errors)"}
+            </span>
+          </h2>
+
+          {analysis.semantic_errors.length > 0 && (
+            <div className="mb-3 space-y-1">
+              {analysis.semantic_errors.map((err, i) => (
+                <div
+                  key={i}
+                  className="rounded-md border border-red-300 bg-red-50 px-3 py-1.5 text-sm text-red-700"
+                >
+                  Line {err.line}, column {err.column}: {err.message}
+                </div>
+              ))}
+            </div>
+          )}
+
+          <h3 className="text-xs font-semibold text-slate-500 uppercase mb-1">
+            Symbol table
+          </h3>
+          <div className="overflow-x-auto rounded-lg border border-slate-200">
+            <table className="min-w-full text-sm">
+              <thead className="bg-slate-100">
+                <tr>
+                  <th className="px-3 py-2 text-left font-semibold text-slate-700 border-b border-slate-200">
+                    Name
+                  </th>
+                  <th className="px-3 py-2 text-left font-semibold text-slate-700 border-b border-slate-200">
+                    Type
+                  </th>
+                  <th className="px-3 py-2 text-left font-semibold text-slate-700 border-b border-slate-200">
+                    Scope depth
+                  </th>
+                  <th className="px-3 py-2 text-left font-semibold text-slate-700 border-b border-slate-200">
+                    Declared at
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {analysis.symbols.length === 0 && (
+                  <tr>
+                    <td colSpan={4} className="px-3 py-2 text-slate-400 text-center">
+                      No variables declared
+                    </td>
+                  </tr>
+                )}
+                {analysis.symbols.map((sym, i) => (
+                  <tr key={i} className="odd:bg-white even:bg-slate-50">
+                    <td className="px-3 py-1.5 font-mono text-slate-800 border-b border-slate-100">
+                      {sym.name}
+                    </td>
+                    <td className="px-3 py-1.5 font-mono text-blue-700 border-b border-slate-100">
+                      {sym.type}
+                    </td>
+                    <td className="px-3 py-1.5 text-slate-500 border-b border-slate-100">
+                      {sym.scope_depth}
+                    </td>
+                    <td className="px-3 py-1.5 text-slate-500 border-b border-slate-100">
+                      {sym.line}:{sym.column}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
     </div>
