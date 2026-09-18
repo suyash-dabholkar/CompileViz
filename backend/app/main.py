@@ -5,7 +5,7 @@ CompileViz backend entry point.
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import regex_routes
+from app.api import grammar_routes, regex_routes
 
 app = FastAPI(
     title="CompileViz API",
@@ -37,7 +37,8 @@ def health_check():
 
 
 app.include_router(regex_routes.router, prefix="/api/regex", tags=["regex"])
+app.include_router(grammar_routes.router, prefix="/api/grammar", tags=["grammar"])
 
 # Future routers get included here as each milestone lands, e.g.:
-# from app.api import grammar_routes
-# app.include_router(grammar_routes.router, prefix="/api/grammar", tags=["grammar"])
+# from app.api import compiler_routes
+# app.include_router(compiler_routes.router, prefix="/api/compiler", tags=["compiler"])
