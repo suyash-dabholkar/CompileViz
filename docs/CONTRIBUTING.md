@@ -4,8 +4,17 @@
 
 - `main` is always working and always deployable. Nothing is committed
   here directly, it's protected in GitHub settings.
-- Every feature gets its own branch off `main`:
-  `feature/<short-name>`, e.g. `feature/direct-dfa`, `feature/ll1-table`.
+- Every feature gets its own branch off `main`, one branch per feature
+  or milestone, covering both backend and frontend together when a
+  feature has both. Name it `feature/<short-name>`, e.g.
+  `feature/dfa-minimization`, `feature/grammar-analyzer`. Don't split
+  a single feature into separate API and UI branches, that made sense
+  for Milestones 4 and 5 while the convention was still being worked
+  out, but going forward a feature isn't really done, demoable, or
+  useful on `main` until both halves exist together, so it should land
+  as one branch, ideally as separate commits (one for backend, one for
+  frontend) so each is still easy to review on its own inside the same
+  PR.
 - Small fixes: `fix/<short-name>`.
 
 ## Workflow for one feature
@@ -13,7 +22,8 @@
 1. `git checkout main && git pull`
 2. `git checkout -b feature/<short-name>`
 3. Build and commit in small, working chunks, don't wait until the whole
-   feature is done to make the first commit.
+   feature is done to make the first commit. For a feature with both a
+   backend and a frontend half, one commit per half is a natural split.
 4. `git push -u origin feature/<short-name>`
 5. Open a pull request into `main` on GitHub.
 6. Wait for the CI check (pytest) to pass.

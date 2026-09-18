@@ -6,12 +6,14 @@ Milestone 2 (done): direct-method DFA construction (followpos / Aho-Ullman).
 Milestone 3 (done): indirect method (Thompson's construction in
     thompson_nfa.py + subset construction in subset_construction.py),
     and the benchmark comparing both in benchmark.py.
-Milestone 6: DFA minimization (partition refinement).
+Milestone 6 (done): DFA minimization via partition refinement, in
+    minimization.py, works on a DFA from either construction method.
 """
 
 from app.automata.benchmark import BenchmarkResult, compare_construction_methods
 from app.automata.dfa import DFA
 from app.automata.direct_dfa import build_direct_dfa
+from app.automata.minimization import MinimizationResult, minimize_dfa
 from app.automata.regex_parser import RegexSyntaxError
 from app.automata.subset_construction import build_indirect_dfa
 from app.automata.thompson_nfa import NFA, build_thompson_nfa
@@ -20,9 +22,11 @@ __all__ = [
     "DFA",
     "NFA",
     "BenchmarkResult",
+    "MinimizationResult",
     "RegexSyntaxError",
     "build_direct_dfa",
     "build_indirect_dfa",
     "build_thompson_nfa",
     "compare_construction_methods",
+    "minimize_dfa",
 ]

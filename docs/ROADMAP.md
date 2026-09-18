@@ -7,18 +7,18 @@ as they're completed.
 - [x] **Milestone 1 — Project scaffolding** (`feature/scaffolding`)
       FastAPI skeleton with `/health`, Vite + React app that calls it, CI
       running pytest on every PR. Tag `v0.1`.
-- [ ] **Milestone 2 — Direct-method DFA engine** (`feature/direct-dfa`)
+- [x] **Milestone 2 — Direct-method DFA engine** (`feature/direct-dfa`)
       Regex -> syntax tree -> nullable/firstpos/lastpos/followpos -> DFA.
-- [ ] **Milestone 3 — Indirect method + benchmark** (`feature/indirect-dfa`)
+- [x] **Milestone 3 — Indirect method + benchmark** (`feature/indirect-dfa`)
       Thompson's construction -> subset construction, plus a benchmark
       comparing state count and build time against Milestone 2. Tag `v0.2`.
-- [ ] **Milestone 4 — Regex playground** (`feature/regex-playground-api`,
+- [x] **Milestone 4 — Regex playground** (`feature/regex-playground-api`,
       `feature/regex-playground-ui`)
       API endpoints for both DFA engines, React page with react-flow
       diagrams for each.
-- [ ] **Milestone 5 — Grammar analysis tool** (`feature/grammar-analyzer`)
+- [x] **Milestone 5 — Grammar analysis tool** (`feature/grammar-analyzer`)
       FIRST/FOLLOW sets and LL(1) table generation. Tag `v0.3`.
-- [ ] **Milestone 6 — DFA minimization** (`feature/dfa-minimization`)
+- [x] **Milestone 6 — DFA minimization** (`feature/dfa-minimization`)
       Partition refinement on top of the Milestone 2 DFA engine.
 - [ ] **Milestone 7 — Lexer** (`feature/lexer`)
       Tokenizes toy-language source using the Milestone 2 DFA engine.
