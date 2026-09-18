@@ -1,14 +1,11 @@
 """
 CompileViz backend entry point.
-
-This is intentionally minimal for Milestone 1 (project scaffolding).
-Real routes (regex playground, grammar analyzer, DFA minimizer, and the
-toy-language compiler pipeline) get added under app/api/ in later
-milestones, each behind its own router.
 """
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
+from app.api import regex_routes
 
 app = FastAPI(
     title="CompileViz API",
@@ -39,6 +36,8 @@ def health_check():
     return {"status": "ok", "service": "compileviz-backend"}
 
 
+app.include_router(regex_routes.router, prefix="/api/regex", tags=["regex"])
+
 # Future routers get included here as each milestone lands, e.g.:
-# from app.api import regex_routes
-# app.include_router(regex_routes.router, prefix="/api/regex", tags=["regex"])
+# from app.api import grammar_routes
+# app.include_router(grammar_routes.router, prefix="/api/grammar", tags=["grammar"])
