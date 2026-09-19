@@ -1,6 +1,6 @@
 import { useState } from "react";
 import AstTreeView from "../components/AstTreeView";
-import { optimizeSource, tokenizeSource } from "../api/compilerApi";
+import { runProgram, tokenizeSource } from "../api/compilerApi";
 import { extractErrorMessage } from "../api/client";
 
 const DEFAULT_SOURCE = `int x;
@@ -19,14 +19,14 @@ print(x);`;
 // This page grows one phase at a time: Milestone 7 added the lexer
 // section, Milestone 8 added syntax analysis (the AST), Milestone 9
 // added semantic analysis (the symbol table and type checking),
-// Milestone 10 added intermediate code (three-address code), and
-// Milestone 11 adds optimization below that. /api/compiler/optimize
-// returns everything /api/compiler/tac does plus every optimization
-// pass's before/after TAC, so this page only needs that one call
-// (plus /tokenize for the raw token table). Milestone 12 and beyond
-// each add their own section here, all reading from the same source
-// textarea, matching the PRD's tabbed dashboard where every phase
-// updates live from one piece of source code.
+// Milestone 10 added intermediate code (three-address code),
+// Milestone 11 added optimization, and Milestone 12 adds code
+// generation and actually running the program. /api/compiler/codegen
+// returns everything every earlier endpoint did plus the generated
+// assembly and the run result, so this page only needs that one call
+// (plus /tokenize for the raw token table). All six PRD phases are
+// live in this one tab now, all reading from the same source
+// textarea.
 export default function CompilerPipeline() {
   const [source, setSource] = useState(DEFAULT_SOURCE);
   const [lexResult, setLexResult] = useState(null);
@@ -41,7 +41,7 @@ export default function CompilerPipeline() {
     try {
       const [lex, analyzed] = await Promise.all([
         tokenizeSource(source),
-        optimizeSource(source),
+        runProgram(source),
       ]);
       setLexResult(lex);
       setAnalysis(analyzed);
@@ -59,10 +59,10 @@ export default function CompilerPipeline() {
       <header>
         <h1 className="text-2xl font-bold text-slate-800">Compiler Pipeline</h1>
         <p className="text-slate-600 text-sm mt-1">
-          Write toy-language source code and watch it move through each
-          phase. Lexical, syntax, semantic, intermediate-code, and
-          optimization passes are all live now, more phases (code
-          generation and beyond) get added here as they're built.
+          Write toy-language source code and watch it move through
+          every phase, lexing, parsing, semantic analysis, intermediate
+          code, optimization, and code generation, then see the program
+          actually run.
         </p>
       </header>
 
@@ -332,6 +332,71 @@ export default function CompilerPipeline() {
             <div>After CSE: {analysis.after_cse.length} instructions</div>
             <div>After dead code elimination: {analysis.after_dce.length} instructions</div>
           </div>
+        </div>
+      )}
+
+      {analysis && (
+        <div>
+          <h2 className="font-semibold text-slate-700 mb-2">
+            Code generation (stack-machine assembly)
+            <span className="ml-2 text-xs font-normal text-slate-500">
+              ({analysis.assembly.length} instruction{analysis.assembly.length === 1 ? "" : "s"})
+            </span>
+          </h2>
+          <div className="rounded-lg border border-slate-200 bg-white p-4 overflow-x-auto max-h-96">
+            <pre className="font-mono text-sm text-slate-800 leading-6">
+              {analysis.assembly.length === 0
+                ? "(no instructions)"
+                : analysis.assembly
+                    .map((instr) =>
+                      instr.op === "LABEL" ? instr.text : `    ${instr.text}`
+                    )
+                    .join("\n")}
+            </pre>
+          </div>
+        </div>
+      )}
+
+      {analysis && (
+        <div>
+          <h2 className="font-semibold text-slate-700 mb-2">Program output</h2>
+          <div className="rounded-lg border border-slate-800 bg-slate-900 p-4 font-mono text-sm min-h-[3rem]">
+            {analysis.run_result.output.length === 0 && !analysis.run_result.runtime_error && (
+              <span className="text-slate-500">(no output)</span>
+            )}
+            {analysis.run_result.output.map((line, i) => (
+              <div key={i} className="text-green-400">
+                {line}
+              </div>
+            ))}
+            {analysis.run_result.runtime_error && (
+              <div className="text-red-400 mt-1">
+                Runtime error: {analysis.run_result.runtime_error}
+              </div>
+            )}
+          </div>
+
+          {Object.keys(analysis.run_result.variables).length > 0 && (
+            <div className="mt-3">
+              <h3 className="text-xs font-semibold text-slate-500 uppercase mb-1">
+                Final variable values
+              </h3>
+              <div className="flex flex-wrap gap-2">
+                {Object.entries(analysis.run_result.variables).map(([name, value]) => (
+                  <span
+                    key={name}
+                    className="rounded-md bg-slate-100 px-2 py-1 font-mono text-xs text-slate-700"
+                  >
+                    {name} = {value}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <p className="mt-2 text-xs text-slate-400">
+            {analysis.run_result.steps} instruction{analysis.run_result.steps === 1 ? "" : "s"} executed
+          </p>
         </div>
       )}
     </div>

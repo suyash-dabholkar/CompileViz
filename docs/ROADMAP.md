@@ -28,7 +28,7 @@ as they're completed.
       Scoped symbol table, type checking. Tag `v0.4`.
 - [x] **Milestone 10 — IR generator** (`feature/tac-generator`)
       AST -> three-address code.
-- [ ] **Milestone 11 — Optimizer** (`feature/optimizer`)
+- [x] **Milestone 11 — Optimizer** (`feature/optimizer`)
       Constant folding, dead code elimination, CSE, before/after diffing.
 - [ ] **Milestone 12 — Code generator** (`feature/codegen`)
       TAC -> stack-machine / assembly output, optional interpreter.

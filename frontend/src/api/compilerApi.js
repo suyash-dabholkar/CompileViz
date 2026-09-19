@@ -24,3 +24,8 @@ export async function optimizeSource(source) {
   const { data } = await apiClient.post("/api/compiler/optimize", { source });
   return data;
 }
+
+export async function runProgram(source) {
+  const { data } = await apiClient.post("/api/compiler/codegen", { source });
+  return data;
+}
