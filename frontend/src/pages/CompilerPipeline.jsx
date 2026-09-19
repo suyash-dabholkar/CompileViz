@@ -1,5 +1,7 @@
 import { useState } from "react";
+import Editor from "@monaco-editor/react";
 import AstTreeView from "../components/AstTreeView";
+import { registerToyLanguage } from "../editor/toyLanguage";
 import { runProgram, tokenizeSource } from "../api/compilerApi";
 import { extractErrorMessage } from "../api/client";
 
@@ -20,13 +22,16 @@ print(x);`;
 // section, Milestone 8 added syntax analysis (the AST), Milestone 9
 // added semantic analysis (the symbol table and type checking),
 // Milestone 10 added intermediate code (three-address code),
-// Milestone 11 added optimization, and Milestone 12 adds code
-// generation and actually running the program. /api/compiler/codegen
+// Milestone 11 added optimization, Milestone 12 added code generation
+// and actually running the program, and Milestone 13 swaps the plain
+// textarea for the Monaco editor (with real syntax highlighting for
+// the toy language, see ../editor/toyLanguage.js), the same editor
+// component VS Code uses, and the one Milestone 14's inline error
+// highlighting builds directly on top of. /api/compiler/codegen
 // returns everything every earlier endpoint did plus the generated
 // assembly and the run result, so this page only needs that one call
 // (plus /tokenize for the raw token table). All six PRD phases are
-// live in this one tab now, all reading from the same source
-// textarea.
+// live in this one tab now, all reading from the same source editor.
 export default function CompilerPipeline() {
   const [source, setSource] = useState(DEFAULT_SOURCE);
   const [lexResult, setLexResult] = useState(null);
@@ -66,22 +71,33 @@ export default function CompilerPipeline() {
         </p>
       </header>
 
-      <form onSubmit={handleCompile} className="space-y-2">
-        <textarea
-          value={source}
-          onChange={(e) => setSource(e.target.value)}
-          rows={10}
-          spellCheck={false}
-          className="w-full rounded-md border border-slate-300 px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
-        />
+      <div className="space-y-2">
+        <div className="rounded-md border border-slate-300 overflow-hidden">
+          <Editor
+            height="260px"
+            language="toylang"
+            value={source}
+            onChange={(value) => setSource(value ?? "")}
+            beforeMount={registerToyLanguage}
+            theme="vs"
+            options={{
+              fontSize: 14,
+              minimap: { enabled: false },
+              scrollBeyondLastLine: false,
+              automaticLayout: true,
+              wordWrap: "on",
+            }}
+          />
+        </div>
         <button
-          type="submit"
+          type="button"
+          onClick={handleCompile}
           disabled={loading || !source.trim()}
           className="rounded-md bg-blue-700 px-4 py-2 text-white font-medium disabled:opacity-50"
         >
           {loading ? "Compiling..." : "Compile"}
         </button>
-      </form>
+      </div>
 
       {error && (
         <div className="rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">
