@@ -1,6 +1,6 @@
 import { useState } from "react";
 import AstTreeView from "../components/AstTreeView";
-import { generateTac, tokenizeSource } from "../api/compilerApi";
+import { optimizeSource, tokenizeSource } from "../api/compilerApi";
 import { extractErrorMessage } from "../api/client";
 
 const DEFAULT_SOURCE = `int x;
@@ -18,11 +18,12 @@ print(x);`;
 
 // This page grows one phase at a time: Milestone 7 added the lexer
 // section, Milestone 8 added syntax analysis (the AST), Milestone 9
-// added semantic analysis (the symbol table and type checking), and
-// Milestone 10 adds intermediate code (three-address code) below
-// that. /api/compiler/tac returns everything /api/compiler/analyze
-// does plus the TAC listing, so this page only needs that one call
-// (plus /tokenize for the raw token table). Milestone 11 and beyond
+// added semantic analysis (the symbol table and type checking),
+// Milestone 10 added intermediate code (three-address code), and
+// Milestone 11 adds optimization below that. /api/compiler/optimize
+// returns everything /api/compiler/tac does plus every optimization
+// pass's before/after TAC, so this page only needs that one call
+// (plus /tokenize for the raw token table). Milestone 12 and beyond
 // each add their own section here, all reading from the same source
 // textarea, matching the PRD's tabbed dashboard where every phase
 // updates live from one piece of source code.
@@ -40,7 +41,7 @@ export default function CompilerPipeline() {
     try {
       const [lex, analyzed] = await Promise.all([
         tokenizeSource(source),
-        generateTac(source),
+        optimizeSource(source),
       ]);
       setLexResult(lex);
       setAnalysis(analyzed);
@@ -59,9 +60,9 @@ export default function CompilerPipeline() {
         <h1 className="text-2xl font-bold text-slate-800">Compiler Pipeline</h1>
         <p className="text-slate-600 text-sm mt-1">
           Write toy-language source code and watch it move through each
-          phase. Lexical, syntax, semantic, and intermediate-code
-          generation are all live now, more phases (optimization and
-          beyond) get added here as they're built.
+          phase. Lexical, syntax, semantic, intermediate-code, and
+          optimization passes are all live now, more phases (code
+          generation and beyond) get added here as they're built.
         </p>
       </header>
 
@@ -260,19 +261,76 @@ export default function CompilerPipeline() {
           <h2 className="font-semibold text-slate-700 mb-2">
             Intermediate code (three-address code)
             <span className="ml-2 text-xs font-normal text-slate-500">
-              ({analysis.tac.length} instruction{analysis.tac.length === 1 ? "" : "s"})
+              ({analysis.original.length} instruction{analysis.original.length === 1 ? "" : "s"})
             </span>
           </h2>
           <div className="rounded-lg border border-slate-200 bg-white p-4 overflow-x-auto max-h-96">
             <pre className="font-mono text-sm text-slate-800 leading-6">
-              {analysis.tac.length === 0
+              {analysis.original.length === 0
                 ? "(no instructions)"
-                : analysis.tac
+                : analysis.original
                     .map((instr) =>
                       instr.op === "LABEL" ? instr.text : `    ${instr.text}`
                     )
                     .join("\n")}
             </pre>
+          </div>
+        </div>
+      )}
+
+      {analysis && (
+        <div>
+          <h2 className="font-semibold text-slate-700 mb-2">
+            Optimization
+            <span className="ml-2 text-xs font-normal text-slate-500">
+              (constant folding &amp; propagation &rarr; common subexpression
+              elimination &rarr; dead code elimination
+              {analysis.instructions_removed > 0
+                ? `, ${analysis.instructions_removed} instruction(s) removed`
+                : ", nothing to remove here"}
+              )
+            </span>
+          </h2>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div>
+              <h3 className="text-xs font-semibold text-slate-500 uppercase mb-1">
+                Before optimization
+              </h3>
+              <div className="rounded-lg border border-slate-200 bg-white p-4 overflow-x-auto max-h-96">
+                <pre className="font-mono text-sm text-slate-800 leading-6">
+                  {analysis.original
+                    .map((instr) =>
+                      instr.op === "LABEL" ? instr.text : `    ${instr.text}`
+                    )
+                    .join("\n")}
+                </pre>
+              </div>
+            </div>
+            <div>
+              <h3 className="text-xs font-semibold text-slate-500 uppercase mb-1">
+                After optimization
+              </h3>
+              <div className="rounded-lg border border-green-200 bg-green-50 p-4 overflow-x-auto max-h-96">
+                <pre className="font-mono text-sm text-slate-800 leading-6">
+                  {analysis.after_dce.length === 0
+                    ? "(fully eliminated)"
+                    : analysis.after_dce
+                        .map((instr) =>
+                          instr.op === "LABEL" ? instr.text : `    ${instr.text}`
+                        )
+                        .join("\n")}
+                </pre>
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-3 grid grid-cols-3 gap-3 text-xs text-slate-500">
+            <div>
+              After constant folding: {analysis.after_constant_folding.length} instructions
+            </div>
+            <div>After CSE: {analysis.after_cse.length} instructions</div>
+            <div>After dead code elimination: {analysis.after_dce.length} instructions</div>
           </div>
         </div>
       )}
