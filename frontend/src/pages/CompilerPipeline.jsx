@@ -1,6 +1,8 @@
 import { useRef, useState } from "react";
 import Editor from "@monaco-editor/react";
 import AstTreeView from "../components/AstTreeView";
+import PresetPicker from "../components/PresetPicker";
+import { PROGRAM_PRESETS } from "../presets/presets";
 import { registerToyLanguage } from "../editor/toyLanguage";
 import { buildErrorMarkers, MARKER_OWNER } from "../editor/errorMarkers";
 import { runProgram, tokenizeSource } from "../api/compilerApi";
@@ -26,15 +28,16 @@ print(x);`;
 // Milestone 11 added optimization, Milestone 12 added code generation
 // and actually running the program, Milestone 13 swapped the plain
 // textarea for the Monaco editor (with real syntax highlighting for
-// the toy language, see ../editor/toyLanguage.js), and Milestone 14
-// adds inline error highlighting on top of that editor: every lex,
-// parse, and semantic error becomes a squiggly underline at its exact
-// position, hover for the message (see ../editor/errorMarkers.js).
-// /api/compiler/codegen returns everything every earlier endpoint did
-// plus the generated assembly and the run result, so this page only
-// needs that one call (plus /tokenize for the raw token table and
-// accurate underline widths). All six PRD phases are live in this one
-// tab now, all reading from the same source editor.
+// the toy language, see ../editor/toyLanguage.js), Milestone 14 added
+// inline error highlighting on top of that editor (see
+// ../editor/errorMarkers.js), and Milestone 15 adds the preset
+// programs picker above the editor (see ../presets/presets.js), so a
+// demo never needs to type a single character. /api/compiler/codegen
+// returns everything every earlier endpoint did plus the generated
+// assembly and the run result, so this page only needs that one call
+// (plus /tokenize for the raw token table and accurate underline
+// widths). All six PRD phases are live in this one tab now, all
+// reading from the same source editor.
 export default function CompilerPipeline() {
   const [source, setSource] = useState(DEFAULT_SOURCE);
   const [lexResult, setLexResult] = useState(null);
@@ -64,6 +67,11 @@ export default function CompilerPipeline() {
     // clear them immediately on edit rather than leaving stale
     // underlines pointing at positions that no longer mean what they
     // did. Fresh markers reappear after the next Compile.
+    clearMarkers();
+  }
+
+  function handlePresetSelect(preset) {
+    setSource(preset.source);
     clearMarkers();
   }
 
@@ -114,6 +122,12 @@ export default function CompilerPipeline() {
           actually run.
         </p>
       </header>
+
+      <PresetPicker
+        label="Preset programs (valid and intentionally broken)"
+        presets={PROGRAM_PRESETS}
+        onSelect={handlePresetSelect}
+      />
 
       <div className="space-y-2">
         <div className="rounded-md border border-slate-300 overflow-hidden">

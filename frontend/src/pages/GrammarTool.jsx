@@ -1,5 +1,7 @@
 import { useState } from "react";
 import Ll1TableView from "../components/Ll1TableView";
+import PresetPicker from "../components/PresetPicker";
+import { GRAMMAR_PRESETS } from "../presets/presets";
 import { analyzeGrammar } from "../api/grammarApi";
 import { extractErrorMessage } from "../api/client";
 
@@ -40,6 +42,12 @@ export default function GrammarTool() {
           its FIRST and FOLLOW sets and its LL(1) parsing table.
         </p>
       </header>
+
+      <PresetPicker
+        label="Preset grammars"
+        presets={GRAMMAR_PRESETS}
+        onSelect={(preset) => setGrammarText(preset.grammar)}
+      />
 
       <form onSubmit={handleAnalyze} className="space-y-2">
         <textarea

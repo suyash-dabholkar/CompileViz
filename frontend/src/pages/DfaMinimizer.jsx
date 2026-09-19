@@ -1,5 +1,7 @@
 import { useState } from "react";
 import DfaGraph from "../components/DfaGraph";
+import PresetPicker from "../components/PresetPicker";
+import { REGEX_PRESETS } from "../presets/presets";
 import { minimizeDfa } from "../api/minimizeApi";
 import { extractErrorMessage } from "../api/client";
 
@@ -68,6 +70,12 @@ export default function DfaMinimizer() {
           character class, its raw DFA is usually far from minimal.
         </p>
       </header>
+
+      <PresetPicker
+        label="Preset regexes"
+        presets={REGEX_PRESETS}
+        onSelect={(preset) => setPattern(preset.pattern)}
+      />
 
       <form onSubmit={handleMinimize} className="flex gap-2 items-end">
         <div className="flex-1">
