@@ -9,9 +9,15 @@ Mounted at /api/compiler in app.main, so the full paths are:
                                      semantic errors (type checking,
                                      undeclared variables, redeclaration,
                                      call arity)
+    POST /api/compiler/tac     -> the above, plus the three-address
+                                     code listing
+    POST /api/compiler/optimize -> the above, plus every optimization
+                                     pass's before/after TAC (constant
+                                     folding, common subexpression
+                                     elimination, dead code elimination)
 
-Later milestones (IR, optimizer, codegen) add their own endpoints here
-as each phase lands.
+Later milestones (codegen) add their own endpoints here as each phase
+lands.
 """
 
 from __future__ import annotations
@@ -22,6 +28,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
 from app.compiler.lexer import tokenize
+from app.compiler.optimizer import optimize as run_optimizer
 from app.compiler.parser import parse
 from app.compiler.semantic_analyzer import analyze
 from app.compiler.tac_generator import generate_tac
@@ -175,4 +182,42 @@ def tac_endpoint(request: SourceRequest) -> dict:
         "semantic_errors": [e.to_dict() for e in semantic_result.errors],
         "symbols": [s.to_dict() for s in semantic_result.symbols],
         "tac": [i.to_dict() for i in instructions],
+    }
+
+
+class OptimizeOut(BaseModel):
+    ast: dict[str, Any]
+    lex_errors: list[LexErrorOut]
+    parse_errors: list[ParseErrorOut]
+    semantic_errors: list[SemanticErrorOut]
+    symbols: list[SymbolOut]
+    original: list[TACInstrOut]
+    after_constant_folding: list[TACInstrOut]
+    after_cse: list[TACInstrOut]
+    after_dce: list[TACInstrOut]
+    instructions_removed: int
+
+
+@router.post("/optimize", response_model=OptimizeOut)
+def optimize_endpoint(request: SourceRequest) -> dict:
+    """Run the full front end, generate TAC, and optimize it
+    (Milestone 11): constant folding and propagation, common
+    subexpression elimination, then dead code elimination, in that
+    order since each pass can expose new opportunities for the next
+    one. Returns the TAC after every stage, not just the final result,
+    so the dashboard can show a before/after diff for each individual
+    optimization, not only the overall effect.
+    """
+    lex_result = tokenize(request.source)
+    parse_result = parse(lex_result.tokens)
+    semantic_result = analyze(parse_result.program)
+    instructions = generate_tac(parse_result.program)
+    optimized = run_optimizer(instructions)
+    return {
+        "ast": parse_result.program.to_dict(),
+        "lex_errors": [e.to_dict() for e in lex_result.errors],
+        "parse_errors": [e.to_dict() for e in parse_result.errors],
+        "semantic_errors": [e.to_dict() for e in semantic_result.errors],
+        "symbols": [s.to_dict() for s in semantic_result.symbols],
+        **optimized.to_dict(),
     }

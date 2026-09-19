@@ -14,7 +14,7 @@ def test_tac_endpoint_returns_instructions():
     assert response.status_code == 200
     body = response.json()
     texts = [i["text"] for i in body["tac"]]
-    assert texts == ["t1 = 3 * 4", "t2 = 2 + t1", "x = t2"]
+    assert texts == ["%t1 = 3 * 4", "%t2 = 2 + %t1", "x = %t2"]
 
 
 def test_tac_endpoint_handles_if_else():
@@ -24,8 +24,8 @@ def test_tac_endpoint_handles_if_else():
     )
     body = response.json()
     texts = [i["text"] for i in body["tac"]]
-    assert "IF_FALSE t1 GOTO L1" in texts
-    assert "GOTO L2" in texts
+    assert "IF_FALSE %t1 GOTO %L1" in texts
+    assert "GOTO %L2" in texts
 
 
 def test_tac_endpoint_still_returns_lower_level_results():
