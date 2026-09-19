@@ -50,12 +50,20 @@ class TACGenerator:
         self._label_count = 0
 
     def new_temp(self) -> str:
+        # Prefixed with '%', a character the lexer never accepts inside
+        # an IDENTIFIER token, so a compiler-generated temp can never
+        # collide with a real variable name the user chose (a user
+        # writing "t1 = ...;" is legal and means what it looks like,
+        # a variable literally named t1, entirely distinct from this
+        # temp). Milestone 11's optimizer relies on that distinction
+        # being unambiguous, see its module docstring for the bug this
+        # fixes.
         self._temp_count += 1
-        return f"t{self._temp_count}"
+        return f"%t{self._temp_count}"
 
     def new_label(self) -> str:
         self._label_count += 1
-        return f"L{self._label_count}"
+        return f"%L{self._label_count}"
 
     def _emit(self, op: str, arg1=None, arg2=None, result=None) -> None:
         self.instructions.append(TACInstr(op, arg1, arg2, result))

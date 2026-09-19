@@ -16,7 +16,14 @@ Milestone 9 (done): symbol_table.py is a scoped symbol table;
 Milestone 10 (done): tac.py defines the TAC instruction shape;
     tac_generator.py walks the AST and emits three-address code,
     lowering if/while to labels and jumps and calls to PARAM/CALL.
-Milestone 11: optimizer (constant folding, dead code elimination, CSE)
+    Its temps and labels are prefixed with '%' (%t1, %L1, ...), a
+    character the lexer never accepts in an identifier, so they can
+    never collide with a real variable name, see optimizer.py's
+    docstring for the bug that fix closes.
+Milestone 11 (done): optimizer.py runs constant folding/propagation,
+    common subexpression elimination, and dead code elimination over
+    the TAC, in that order, and keeps the TAC after every stage for a
+    before/after view.
 Milestone 12: code generator (TAC -> stack-machine / assembly output)
 """
 
@@ -36,6 +43,7 @@ from app.compiler.ast_nodes import (
     WhileStmt,
 )
 from app.compiler.lexer import LexError, LexResult, Token, tokenize
+from app.compiler.optimizer import OptimizationResult, optimize
 from app.compiler.parser import ParseError, ParseResult, Parser, parse
 from app.compiler.semantic_analyzer import (
     BUILTIN_FUNCTIONS,
@@ -83,4 +91,6 @@ __all__ = [
     "TACInstr",
     "TACGenerator",
     "generate_tac",
+    "OptimizationResult",
+    "optimize",
 ]

@@ -22,11 +22,11 @@ as they're completed.
       Partition refinement on top of the Milestone 2 DFA engine.
 - [x] **Milestone 7 — Lexer** (`feature/lexer`)
       Tokenizes toy-language source using the Milestone 2 DFA engine.
-- [ ] **Milestone 8 — Parser and AST** (`feature/parser`)
+- [x] **Milestone 8 — Parser and AST** (`feature/parser`)
       Built on the Milestone 5 grammar tool's LL(1) table.
-- [ ] **Milestone 9 — Semantic analyzer** (`feature/semantic-analysis`)
+- [x] **Milestone 9 — Semantic analyzer** (`feature/semantic-analysis`)
       Scoped symbol table, type checking. Tag `v0.4`.
-- [ ] **Milestone 10 — IR generator** (`feature/tac-generator`)
+- [x] **Milestone 10 — IR generator** (`feature/tac-generator`)
       AST -> three-address code.
 - [ ] **Milestone 11 — Optimizer** (`feature/optimizer`)
       Constant folding, dead code elimination, CSE, before/after diffing.
