@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Editor from "@monaco-editor/react";
 import AstTreeView from "../components/AstTreeView";
 import { registerToyLanguage } from "../editor/toyLanguage";
+import { buildErrorMarkers, MARKER_OWNER } from "../editor/errorMarkers";
 import { runProgram, tokenizeSource } from "../api/compilerApi";
 import { extractErrorMessage } from "../api/client";
 
@@ -23,21 +24,48 @@ print(x);`;
 // added semantic analysis (the symbol table and type checking),
 // Milestone 10 added intermediate code (three-address code),
 // Milestone 11 added optimization, Milestone 12 added code generation
-// and actually running the program, and Milestone 13 swaps the plain
+// and actually running the program, Milestone 13 swapped the plain
 // textarea for the Monaco editor (with real syntax highlighting for
-// the toy language, see ../editor/toyLanguage.js), the same editor
-// component VS Code uses, and the one Milestone 14's inline error
-// highlighting builds directly on top of. /api/compiler/codegen
-// returns everything every earlier endpoint did plus the generated
-// assembly and the run result, so this page only needs that one call
-// (plus /tokenize for the raw token table). All six PRD phases are
-// live in this one tab now, all reading from the same source editor.
+// the toy language, see ../editor/toyLanguage.js), and Milestone 14
+// adds inline error highlighting on top of that editor: every lex,
+// parse, and semantic error becomes a squiggly underline at its exact
+// position, hover for the message (see ../editor/errorMarkers.js).
+// /api/compiler/codegen returns everything every earlier endpoint did
+// plus the generated assembly and the run result, so this page only
+// needs that one call (plus /tokenize for the raw token table and
+// accurate underline widths). All six PRD phases are live in this one
+// tab now, all reading from the same source editor.
 export default function CompilerPipeline() {
   const [source, setSource] = useState(DEFAULT_SOURCE);
   const [lexResult, setLexResult] = useState(null);
   const [analysis, setAnalysis] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+
+  const editorRef = useRef(null);
+  const monacoRef = useRef(null);
+
+  function handleEditorMount(editor, monaco) {
+    editorRef.current = editor;
+    monacoRef.current = monaco;
+  }
+
+  function clearMarkers() {
+    const monaco = monacoRef.current;
+    const editor = editorRef.current;
+    if (!monaco || !editor) return;
+    const model = editor.getModel();
+    if (model) monaco.editor.setModelMarkers(model, MARKER_OWNER, []);
+  }
+
+  function handleSourceChange(value) {
+    setSource(value ?? "");
+    // The squiggles reflect the LAST compile, not the current text, so
+    // clear them immediately on edit rather than leaving stale
+    // underlines pointing at positions that no longer mean what they
+    // did. Fresh markers reappear after the next Compile.
+    clearMarkers();
+  }
 
   async function handleCompile(e) {
     e?.preventDefault();
@@ -50,10 +78,26 @@ export default function CompilerPipeline() {
       ]);
       setLexResult(lex);
       setAnalysis(analyzed);
+
+      const monaco = monacoRef.current;
+      const editor = editorRef.current;
+      if (monaco && editor) {
+        const model = editor.getModel();
+        if (model) {
+          const markers = buildErrorMarkers(monaco, {
+            lexErrors: lex.errors,
+            parseErrors: analyzed.parse_errors,
+            semanticErrors: analyzed.semantic_errors,
+            tokens: lex.tokens,
+          });
+          monaco.editor.setModelMarkers(model, MARKER_OWNER, markers);
+        }
+      }
     } catch (err) {
       setError(extractErrorMessage(err));
       setLexResult(null);
       setAnalysis(null);
+      clearMarkers();
     } finally {
       setLoading(false);
     }
@@ -77,8 +121,9 @@ export default function CompilerPipeline() {
             height="260px"
             language="toylang"
             value={source}
-            onChange={(value) => setSource(value ?? "")}
+            onChange={handleSourceChange}
             beforeMount={registerToyLanguage}
+            onMount={handleEditorMount}
             theme="vs"
             options={{
               fontSize: 14,
