@@ -15,9 +15,16 @@ Mounted at /api/compiler in app.main, so the full paths are:
                                      pass's before/after TAC (constant
                                      folding, common subexpression
                                      elimination, dead code elimination)
+    POST /api/compiler/codegen -> the above, plus the generated
+                                     stack-machine assembly AND the
+                                     result of actually running it
+                                     (output, final variable values,
+                                     or a runtime error), the complete
+                                     six-phase pipeline in one call
 
-Later milestones (codegen) add their own endpoints here as each phase
-lands.
+This is the last phase of the core pipeline; later milestones (the
+dashboard integration, inline error highlighting, presets) build on
+top of what's here rather than adding new compiler phases.
 """
 
 from __future__ import annotations
@@ -27,6 +34,8 @@ from typing import Any, Optional
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
+from app.compiler.codegen import generate_code
+from app.compiler.interpreter import run_program
 from app.compiler.lexer import tokenize
 from app.compiler.optimizer import optimize as run_optimizer
 from app.compiler.parser import parse
@@ -220,4 +229,66 @@ def optimize_endpoint(request: SourceRequest) -> dict:
         "semantic_errors": [e.to_dict() for e in semantic_result.errors],
         "symbols": [s.to_dict() for s in semantic_result.symbols],
         **optimized.to_dict(),
+    }
+
+
+class AssemblyInstrOut(BaseModel):
+    op: str
+    arg: Optional[str] = None
+    arg2: Optional[str] = None
+    text: str
+
+
+class RunResultOut(BaseModel):
+    output: list[str]
+    variables: dict[str, str]
+    steps: int
+    runtime_error: Optional[str] = None
+
+
+class CodegenOut(BaseModel):
+    ast: dict[str, Any]
+    lex_errors: list[LexErrorOut]
+    parse_errors: list[ParseErrorOut]
+    semantic_errors: list[SemanticErrorOut]
+    symbols: list[SymbolOut]
+    original: list[TACInstrOut]
+    after_constant_folding: list[TACInstrOut]
+    after_cse: list[TACInstrOut]
+    after_dce: list[TACInstrOut]
+    instructions_removed: int
+    assembly: list[AssemblyInstrOut]
+    run_result: RunResultOut
+
+
+@router.post("/codegen", response_model=CodegenOut)
+def codegen_endpoint(request: SourceRequest) -> dict:
+    """The complete six-phase pipeline in one call: lex, parse,
+    semantic analysis, TAC generation, optimization, code generation,
+    and then actually running the generated stack-machine code.
+
+    Execution is always attempted, even for a program with semantic
+    errors, since seeing what it would actually do (or where it goes
+    wrong at runtime) is often exactly what's useful for understanding
+    a mistake. The interpreter itself is protected against infinite
+    loops (a step cap) and reports any runtime problem (division by
+    zero, a variable read before assignment) as a normal result field
+    rather than a server error.
+    """
+    lex_result = tokenize(request.source)
+    parse_result = parse(lex_result.tokens)
+    semantic_result = analyze(parse_result.program)
+    instructions = generate_tac(parse_result.program)
+    optimized = run_optimizer(instructions)
+    assembly = generate_code(optimized.after_dce)
+    run_result = run_program(assembly)
+    return {
+        "ast": parse_result.program.to_dict(),
+        "lex_errors": [e.to_dict() for e in lex_result.errors],
+        "parse_errors": [e.to_dict() for e in parse_result.errors],
+        "semantic_errors": [e.to_dict() for e in semantic_result.errors],
+        "symbols": [s.to_dict() for s in semantic_result.symbols],
+        **optimized.to_dict(),
+        "assembly": [i.to_dict() for i in assembly],
+        "run_result": run_result.to_dict(),
     }
