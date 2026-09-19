@@ -1,5 +1,7 @@
 import { useState } from "react";
 import DfaGraph from "../components/DfaGraph";
+import PresetPicker from "../components/PresetPicker";
+import { REGEX_PRESETS } from "../presets/presets";
 import {
   buildDirectDfa,
   buildIndirectDfa,
@@ -67,6 +69,12 @@ export default function RegexPlayground() {
           construction).
         </p>
       </header>
+
+      <PresetPicker
+        label="Preset regexes"
+        presets={REGEX_PRESETS}
+        onSelect={(preset) => setPattern(preset.pattern)}
+      />
 
       <form onSubmit={handleBuild} className="flex gap-2">
         <input
