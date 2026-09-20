@@ -1,0 +1,22 @@
+# Render "Blueprint" config: lets you deploy the backend by pointing
+# Render at this repo and clicking "Apply", instead of filling in every
+# field by hand in the dashboard. See docs/DEPLOYMENT.md for the exact
+# click-through steps, including the (equally valid) manual dashboard
+# path if you'd rather not use a blueprint, and for Railway as an
+# alternative to Render.
+services:
+  - type: web
+    name: compileviz-backend
+    runtime: python
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      # Set this AFTER the frontend is deployed and you know its URL,
+      # see docs/DEPLOYMENT.md step 4. Render lets you edit env vars
+      # and it redeploys automatically.
+      - key: ALLOWED_ORIGINS
+        value: ""

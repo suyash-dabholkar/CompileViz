@@ -30,16 +30,16 @@ as they're completed.
       AST -> three-address code.
 - [x] **Milestone 11 — Optimizer** (`feature/optimizer`)
       Constant folding, dead code elimination, CSE, before/after diffing.
-- [ ] **Milestone 12 — Code generator** (`feature/codegen`)
+- [x] **Milestone 12 — Code generator** (`feature/codegen`)
       TAC -> stack-machine / assembly output, optional interpreter.
-- [ ] **Milestone 13 — Full dashboard integration** (`feature/dashboard`)
+- [x] **Milestone 13 — Full dashboard integration** (`feature/dashboard`)
       All six phases in one live, tabbed view with Monaco Editor as the
       code input. Tag `v0.5`.
-- [ ] **Milestone 14 — Inline error highlighting** (`feature/error-highlighting`)
+- [x] **Milestone 14 — Inline error highlighting** (`feature/error-highlighting`)
       Lexical, syntax, and semantic errors as inline Monaco markers.
-- [ ] **Milestone 15 — Preset examples library** (`feature/presets`)
+- [x] **Milestone 15 — Preset examples library** (`feature/presets`)
       Built-in regexes, grammars, and sample programs (valid + broken).
-- [ ] **Milestone 16 — Deployment** (`feature/deployment`)
+- [x] **Milestone 16 — Deployment** (`feature/deployment`)
       Backend on Render/Railway, frontend on Vercel, connected end to end.
       Tag `v1.0`.
 - [ ] **Milestone 17 — Polish and report prep**
