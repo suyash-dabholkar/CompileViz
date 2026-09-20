@@ -10,7 +10,7 @@ export default function PresetPicker({ label, presets, onSelect }) {
 
   return (
     <div>
-      <label htmlFor={id} className="block text-xs font-medium text-slate-600 mb-1">
+      <label htmlFor={id} className="block text-xs font-medium text-ink-soft mb-1">
         {label}
       </label>
       <select
@@ -22,7 +22,7 @@ export default function PresetPicker({ label, presets, onSelect }) {
           onSelect(presets[Number(index)]);
           e.target.value = ""; // reset so picking the same preset twice still fires onChange
         }}
-        className="rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+        className="border border-ink/25 bg-white px-3 py-2 text-sm text-ink-soft focus:outline-none focus:border-blueprint"
       >
         <option value="" disabled>
           Load an example...

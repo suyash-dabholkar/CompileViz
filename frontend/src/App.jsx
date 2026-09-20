@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import apiClient from "./api/client";
+import { Logomark } from "./components/ui/Logomark";
 import RegexPlayground from "./pages/RegexPlayground";
 import GrammarTool from "./pages/GrammarTool";
 import DfaMinimizer from "./pages/DfaMinimizer";
@@ -14,7 +15,7 @@ const TABS = [
 
 function App() {
   const [activeTab, setActiveTab] = useState(TABS[0].id);
-  const [backendStatus, setBackendStatus] = useState("checking...");
+  const [backendStatus, setBackendStatus] = useState("checking");
 
   useEffect(() => {
     let cancelled = false;
@@ -44,34 +45,51 @@ function App() {
   }, []);
 
   const ActiveComponent = TABS.find((t) => t.id === activeTab).Component;
+  const statusColor =
+    backendStatus === "ok" ? "bg-circuit" : backendStatus === "unreachable" ? "bg-red-500" : "bg-signal";
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <nav className="bg-white border-b border-slate-200 px-6">
-        <div className="max-w-6xl mx-auto flex gap-1">
-          {TABS.map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
-                activeTab === tab.id
-                  ? "border-blue-700 text-blue-700"
-                  : "border-transparent text-slate-500 hover:text-slate-700"
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
+    <div className="min-h-screen font-sans">
+      <header className="border-b border-ink/15 bg-paper/90 backdrop-blur-sm sticky top-0 z-10">
+        <div className="max-w-6xl mx-auto px-6 pt-5 pb-0">
+          <div className="flex items-center gap-3">
+            <Logomark className="w-9 h-5 text-blueprint" />
+            <div>
+              <h1 className="font-sans font-semibold text-lg leading-none text-ink">CompileViz</h1>
+              <p className="text-xs text-ink-faint mt-1">
+                Regex to automata, grammars, and a working toy compiler, all live
+              </p>
+            </div>
+          </div>
+
+          <nav className="flex gap-6 mt-5">
+            {TABS.map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`relative pb-3 text-sm font-medium transition-colors ${
+                  activeTab === tab.id ? "text-ink" : "text-ink-faint hover:text-ink-soft"
+                }`}
+              >
+                {tab.label}
+                {activeTab === tab.id && (
+                  <span className="absolute left-0 right-0 -bottom-px h-0.5 bg-signal" />
+                )}
+              </button>
+            ))}
+          </nav>
         </div>
-      </nav>
+      </header>
 
       <ActiveComponent />
 
-      <footer className="text-center text-xs text-slate-400 pb-4">
-        backend: <span className="font-mono">{backendStatus}</span>
+      <footer className="max-w-6xl mx-auto px-6 pb-6 pt-2 flex items-center gap-2">
+        <span className={`inline-block w-1.5 h-1.5 rounded-full ${statusColor}`} />
+        <span className="text-xs text-ink-faint font-mono">backend: {backendStatus}</span>
       </footer>
     </div>
   );
 }
 
 export default App;
+

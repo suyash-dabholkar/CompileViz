@@ -1,6 +1,8 @@
 import { useState } from "react";
 import Ll1TableView from "../components/Ll1TableView";
 import PresetPicker from "../components/PresetPicker";
+import { Panel } from "../components/ui/Panel";
+import { Button } from "../components/ui/Button";
 import { GRAMMAR_PRESETS } from "../presets/presets";
 import { analyzeGrammar } from "../api/grammarApi";
 import { extractErrorMessage } from "../api/client";
@@ -35,8 +37,8 @@ export default function GrammarTool() {
   return (
     <div className="max-w-6xl mx-auto p-6 space-y-6">
       <header>
-        <h1 className="text-2xl font-bold text-slate-800">Grammar Analysis Tool</h1>
-        <p className="text-slate-600 text-sm mt-1">
+        <h1 className="text-2xl font-semibold text-ink">Grammar Analysis Tool</h1>
+        <p className="text-ink-soft text-sm mt-1 max-w-2xl">
           Enter a context-free grammar (one rule per line, "-&gt;" or "::=", "|"
           for alternatives, "eps" or "\u03b5" for the empty production) and see
           its FIRST and FOLLOW sets and its LL(1) parsing table.
@@ -55,19 +57,15 @@ export default function GrammarTool() {
           onChange={(e) => setGrammarText(e.target.value)}
           rows={6}
           spellCheck={false}
-          className="w-full rounded-md border border-slate-300 px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+          className="w-full border border-ink/25 bg-white px-3 py-2 font-mono text-sm focus:outline-none focus:border-blueprint"
         />
-        <button
-          type="submit"
-          disabled={loading || !grammarText.trim()}
-          className="rounded-md bg-blue-700 px-4 py-2 text-white font-medium disabled:opacity-50"
-        >
-          {loading ? "Analyzing..." : "Analyze"}
-        </button>
+        <Button type="submit" disabled={loading || !grammarText.trim()}>
+          {loading ? "Analyzing…" : "Analyze"}
+        </Button>
       </form>
 
       {error && (
-        <div className="rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">
+        <div className="border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">
           {error}
         </div>
       )}
@@ -75,49 +73,47 @@ export default function GrammarTool() {
       {result && (
         <>
           <div
-            className={`rounded-md px-3 py-2 text-sm font-medium ${
-              result.ll1_table.is_ll1
-                ? "bg-green-100 text-green-800"
-                : "bg-red-100 text-red-800"
+            className={`flex items-center gap-2 px-3 py-2 text-sm font-medium ${
+              result.ll1_table.is_ll1 ? "bg-circuit-light text-circuit" : "bg-signal-light text-signal-dark"
             }`}
           >
+            <span
+              className={`w-1.5 h-1.5 rounded-full ${result.ll1_table.is_ll1 ? "bg-circuit" : "bg-signal-dark"}`}
+            />
             {result.ll1_table.is_ll1
               ? "This grammar is LL(1)."
               : `Not LL(1): ${result.ll1_table.conflicts.length} conflict(s) found, highlighted below.`}
           </div>
 
-          <div>
-            <h2 className="font-semibold text-slate-700 mb-2">
-              FIRST and FOLLOW sets
-            </h2>
-            <div className="overflow-x-auto rounded-lg border border-slate-200">
+          <Panel title="FIRST and FOLLOW sets" className="!p-0">
+            <div className="overflow-x-auto">
               <table className="min-w-full text-sm">
-                <thead className="bg-slate-100">
+                <thead>
                   <tr>
-                    <th className="px-3 py-2 text-left font-semibold text-slate-700 border-b border-slate-200">
+                    <th className="px-4 py-2.5 text-left font-medium text-ink-soft border-b border-graph">
                       Non-terminal
                     </th>
-                    <th className="px-3 py-2 text-left font-semibold text-slate-700 border-b border-slate-200">
+                    <th className="px-4 py-2.5 text-left font-medium text-ink-soft border-b border-graph">
                       FIRST
                     </th>
-                    <th className="px-3 py-2 text-left font-semibold text-slate-700 border-b border-slate-200">
+                    <th className="px-4 py-2.5 text-left font-medium text-ink-soft border-b border-graph">
                       FOLLOW
                     </th>
                   </tr>
                 </thead>
                 <tbody>
                   {result.non_terminals.map((nt) => (
-                    <tr key={nt} className="odd:bg-white even:bg-slate-50">
-                      <td className="px-3 py-2 font-mono font-semibold text-slate-800 border-b border-slate-100">
+                    <tr key={nt} className="odd:bg-white even:bg-paper/60">
+                      <td className="px-4 py-2 font-mono font-medium text-ink border-b border-graph/60">
                         {nt}
                         {nt === result.start_symbol && (
-                          <span className="ml-1 text-xs text-blue-600">(start)</span>
+                          <span className="ml-1.5 text-xs text-blueprint font-sans">(start)</span>
                         )}
                       </td>
-                      <td className="px-3 py-2 font-mono text-slate-700 border-b border-slate-100">
+                      <td className="px-4 py-2 font-mono text-ink-soft border-b border-graph/60">
                         {result.first_sets[nt].join(", ")}
                       </td>
-                      <td className="px-3 py-2 font-mono text-slate-700 border-b border-slate-100">
+                      <td className="px-4 py-2 font-mono text-ink-soft border-b border-graph/60">
                         {result.follow_sets[nt].join(", ")}
                       </td>
                     </tr>
@@ -125,12 +121,11 @@ export default function GrammarTool() {
                 </tbody>
               </table>
             </div>
-          </div>
+          </Panel>
 
-          <div>
-            <h2 className="font-semibold text-slate-700 mb-2">LL(1) parsing table</h2>
+          <Panel title="LL(1) parsing table">
             <Ll1TableView table={result.ll1_table} />
-          </div>
+          </Panel>
         </>
       )}
     </div>

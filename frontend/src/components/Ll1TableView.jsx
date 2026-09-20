@@ -7,17 +7,17 @@ export default function Ll1TableView({ table }) {
   );
 
   return (
-    <div className="overflow-x-auto rounded-lg border border-slate-200">
+    <div className="overflow-x-auto">
       <table className="min-w-full text-sm">
-        <thead className="bg-slate-100">
+        <thead>
           <tr>
-            <th className="px-3 py-2 text-left font-semibold text-slate-700 border-b border-slate-200">
+            <th className="px-4 py-2.5 text-left font-medium text-ink-soft border-b border-graph">
               &nbsp;
             </th>
             {terminals.map((terminal) => (
               <th
                 key={terminal}
-                className="px-3 py-2 text-left font-mono font-semibold text-slate-700 border-b border-slate-200"
+                className="px-4 py-2.5 text-left font-mono font-medium text-ink-soft border-b border-graph"
               >
                 {terminal}
               </th>
@@ -26,8 +26,8 @@ export default function Ll1TableView({ table }) {
         </thead>
         <tbody>
           {nonTerminals.map((nt) => (
-            <tr key={nt} className="odd:bg-white even:bg-slate-50">
-              <td className="px-3 py-2 font-mono font-semibold text-slate-800 border-b border-slate-100">
+            <tr key={nt} className="odd:bg-white even:bg-paper/60">
+              <td className="px-4 py-2 font-mono font-medium text-ink border-b border-graph/60">
                 {nt}
               </td>
               {terminals.map((terminal) => {
@@ -36,8 +36,8 @@ export default function Ll1TableView({ table }) {
                 return (
                   <td
                     key={terminal}
-                    className={`px-3 py-2 font-mono border-b border-slate-100 ${
-                      isConflict ? "bg-red-100 text-red-800 font-semibold" : "text-slate-700"
+                    className={`px-4 py-2 font-mono border-b border-graph/60 ${
+                      isConflict ? "bg-signal-light text-signal-dark font-semibold" : "text-ink-soft"
                     }`}
                   >
                     {productions ? productions.join(" / ") : ""}

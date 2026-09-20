@@ -80,8 +80,10 @@ function buildNodes(dfa, positions) {
         justifyContent: "center",
         fontWeight: 600,
         fontSize: 13,
-        border: isAccepting ? "3px double #1e3a5f" : "2px solid #1e3a5f",
-        background: isStart ? "#dbeafe" : "#f8fafc",
+        fontFamily: "'JetBrains Mono', monospace",
+        border: isAccepting ? "3px double #16213A" : "2px solid #16213A",
+        background: isStart ? "#E8F0FA" : "#FFFFFF",
+        color: "#16213A",
       },
     });
   }
@@ -139,10 +141,10 @@ function buildEdges(dfa) {
     source: String(from),
     target: String(to),
     label: compressSymbols(symbols),
-    markerEnd: { type: MarkerType.ArrowClosed },
-    style: { stroke: "#475569" },
-    labelStyle: { fontSize: 12, fontWeight: 600 },
-    labelBgStyle: { fill: "#f8fafc" },
+    markerEnd: { type: MarkerType.ArrowClosed, color: "#16213A" },
+    style: { stroke: "#3A4A66" },
+    labelStyle: { fontSize: 12, fontWeight: 600, fontFamily: "'JetBrains Mono', monospace", fill: "#16213A" },
+    labelBgStyle: { fill: "#F5F6F2" },
   }));
 }
 
@@ -186,7 +188,7 @@ function DfaGraphInner({ dfa, height: baseHeight }) {
   if (!dfa) return null;
 
   return (
-    <div style={{ height }} className="rounded-lg border border-slate-200 bg-white">
+    <div style={{ height }} className="bg-white">
       {/* minZoom is dropped from react-flow's default of 0.5: a wide,
           shallow graph (many states at one depth, or several states
           spread across a long horizontal chain) can need to zoom out
@@ -203,7 +205,7 @@ function DfaGraphInner({ dfa, height: baseHeight }) {
         minZoom={0.1}
         proOptions={{ hideAttribution: true }}
       >
-        <Background />
+        <Background color="#D8DEE9" gap={20} />
         <Controls showInteractive={false} />
       </ReactFlow>
     </div>

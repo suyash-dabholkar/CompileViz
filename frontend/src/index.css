@@ -1,3 +1,36 @@
+@import "@fontsource/space-grotesk/400.css";
+@import "@fontsource/space-grotesk/500.css";
+@import "@fontsource/space-grotesk/600.css";
+@import "@fontsource/space-grotesk/700.css";
+@import "@fontsource/jetbrains-mono/400.css";
+@import "@fontsource/jetbrains-mono/500.css";
+@import "@fontsource/jetbrains-mono/600.css";
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+body {
+  background-color: #F5F6F2;
+  background-image:
+    linear-gradient(to right, #E3E7EE 1px, transparent 1px),
+    linear-gradient(to bottom, #E3E7EE 1px, transparent 1px);
+  background-size: 32px 32px;
+  color: #16213A;
+}
+
+/* A visible focus ring everywhere, on the app's own terms rather than
+   the browser default, without ever removing it (keyboard navigation
+   must stay usable). */
+:focus-visible {
+  outline: 2px solid #E8A33D;
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

@@ -30,18 +30,18 @@ function AstNode({ node, label }) {
   return (
     <div className="font-mono text-sm">
       <div>
-        {label && <span className="text-slate-400 mr-1">{label}:</span>}
-        <span className="font-semibold text-blue-700">{kind}</span>
+        {label && <span className="text-ink-faint mr-1">{label}:</span>}
+        <span className="font-semibold text-blueprint">{kind}</span>
         {attrs.map(([key, value]) => (
-          <span key={key} className="ml-2 text-xs text-slate-500">
-            {key}=<span className="text-slate-700">{String(value)}</span>
+          <span key={key} className="ml-2 text-xs text-ink-faint">
+            {key}=<span className="text-ink-soft">{String(value)}</span>
           </span>
         ))}
       </div>
       {childEntries.map(([key, nodes]) => (
-        <div key={key} className="ml-4 border-l border-slate-200 pl-3 mt-0.5">
+        <div key={key} className="ml-4 border-l border-graph pl-3 mt-0.5">
           {nodes.length > 1 ? (
-            <div className="text-xs text-slate-400 mb-0.5">{key}:</div>
+            <div className="text-xs text-ink-faint mb-0.5">{key}:</div>
           ) : null}
           {nodes.map((n, i) => (
             <AstNode key={i} node={n} label={nodes.length > 1 ? null : key} />
@@ -55,7 +55,7 @@ function AstNode({ node, label }) {
 export default function AstTreeView({ ast }) {
   if (!ast) return null;
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-4 overflow-x-auto">
+    <div className="overflow-x-auto">
       <AstNode node={ast} />
     </div>
   );

@@ -16,7 +16,9 @@
     "zustand": "^4.5.5",
     "reactflow": "^11.11.4",
     "@monaco-editor/react": "^4.6.0",
-    "monaco-editor": "^0.52.0"
+    "monaco-editor": "^0.52.0",
+    "@fontsource/space-grotesk": "^5.1.0",
+    "@fontsource/jetbrains-mono": "^5.1.1"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.1",
