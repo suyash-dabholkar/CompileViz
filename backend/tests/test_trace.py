@@ -1,0 +1,384 @@
+"""
+Tests for the step-trace teaching layer.
+
+Two things are being protected here. First, that tracing only ever
+observes: the DFA returned with a tracer attached must be identical to
+the one returned without, because the trace is a teaching aid and the
+tool must not have two behaviours. Second, that the trace agrees with
+the textbook, since a visualization that confidently teaches the wrong
+followpos table is worse than no visualization at all.
+"""
+
+from __future__ import annotations
+
+import pytest
+from app.automata.direct_dfa import (
+    END_MARKER,
+    assign_node_ids,
+    build_direct_dfa,
+    tree_to_dict,
+)
+from app.automata.regex_parser import parse_regex, to_regex
+from app.main import app
+from app.trace import HIGHLIGHT_KEYS, SCHEMA, Tracer
+from fastapi.testclient import TestClient
+
+client = TestClient(app)
+
+# The patterns the frontend ships as presets, so whatever a professor
+# clicks during a demo is covered here.
+PRESET_PATTERNS = [
+    "(a|b)*abb",
+    "[a-zA-Z][a-zA-Z0-9]*",
+    "[0-9]+",
+    "[0-9]+\\.[0-9]+",
+    "a(b|c)*d",
+    "colou?r",
+]
+
+
+def trace_for(pattern: str) -> Tracer:
+    tracer = Tracer(tool="regex.direct", title=f"Direct method for {pattern}")
+    build_direct_dfa(pattern, tracer=tracer)
+    return tracer
+
+
+# ---------------------------------------------------------------------------
+# Tracing must not change the result
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("pattern", PRESET_PATTERNS)
+def test_tracing_does_not_change_the_dfa(pattern):
+    with_trace = build_direct_dfa(pattern, tracer=Tracer(tool="regex.direct"))
+    without_trace = build_direct_dfa(pattern)
+    assert with_trace.to_dict() == without_trace.to_dict()
+
+
+@pytest.mark.parametrize("pattern", PRESET_PATTERNS)
+def test_traced_dfa_still_matches_the_same_strings(pattern):
+    """A DFA whose construction was observed must still recognize the
+    same language, not just serialize to the same dict.
+    """
+    traced = build_direct_dfa(pattern, tracer=Tracer(tool="regex.direct"))
+    plain = build_direct_dfa(pattern)
+    for text in ["", "a", "ab", "abb", "aabb", "x", "0", "01", "colour", "color"]:
+        assert traced.match(text) == plain.match(text)
+
+
+# ---------------------------------------------------------------------------
+# Schema invariants the frontend relies on
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("pattern", PRESET_PATTERNS)
+def test_every_step_satisfies_the_schema(pattern):
+    steps = trace_for(pattern).steps
+    assert steps, "a construction with no steps teaches nothing"
+
+    for index, step in enumerate(steps):
+        where = f"{pattern} step {index} ({step.get('kind')})"
+
+        # Contiguous indices: the stepper scrubs by array position and
+        # labels by `i`, so a gap would mislabel every later step.
+        assert step["i"] == index, where
+
+        assert step["kind"], where
+        assert step["title"], where
+        assert step["phase"], where
+        assert isinstance(step["depth"], int) and step["depth"] >= 0, where
+
+        # The explanation is the whole point of the layer, not a
+        # nice-to-have: a step without one is a step the UI cannot teach
+        # from. 20 chars is enough to catch a placeholder.
+        assert len(step["explain"]) >= 20, where
+
+        # Every quiz and every "what changed" highlight derives from it.
+        assert "result" in step["data"], where
+
+        # Fixed-key bag, so no renderer needs an existence check.
+        assert set(step["highlight"]) == set(HIGHLIGHT_KEYS), where
+        for key in HIGHLIGHT_KEYS:
+            assert isinstance(step["highlight"][key], list), f"{where}/{key}"
+
+
+@pytest.mark.parametrize("pattern", PRESET_PATTERNS)
+def test_quizzes_are_answerable(pattern):
+    """A quiz whose answer is not in the universe it offers cannot be
+    answered by picking from that universe.
+    """
+    tracer = trace_for(pattern)
+    quizzed = 0
+    for step in tracer.steps:
+        quiz = step["quiz"]
+        if quiz is None:
+            continue
+        quizzed += 1
+        assert quiz["question"], step["kind"]
+        assert quiz["kind"] in {"set", "number", "choice"}, step["kind"]
+        if quiz["kind"] == "set":
+            assert quiz["universe"], step["kind"]
+            assert set(quiz["answer"]) <= set(quiz["universe"]), step["kind"]
+        if quiz["kind"] == "choice":
+            assert quiz["answer"] in quiz["choices"], step["kind"]
+    assert quizzed > 0, "nothing to self-test on"
+
+
+@pytest.mark.parametrize(
+    "pattern,expected",
+    [
+        # No +, ? or [] to rewrite, so there is no parse phase at all.
+        ("(a|b)*abb", ["augment", "positions", "attrs", "followpos", "subset"]),
+        # Desugaring happens during parsing, before anything else.
+        ("a+b?", ["parse", "augment", "positions", "attrs", "followpos", "subset"]),
+    ],
+)
+def test_phases_appear_in_algorithm_order(pattern, expected):
+    """The phase ribbon groups contiguous runs of the same phase, so a
+    phase that reappears after another has started would render as two
+    separate segments and read as if the algorithm backtracked.
+    """
+    phases = [step["phase"] for step in trace_for(pattern).steps]
+    runs = [p for i, p in enumerate(phases) if i == 0 or phases[i - 1] != p]
+    assert runs == expected
+    assert len(runs) == len(set(runs)), "a phase restarted after another began"
+
+
+def test_limit_truncates_instead_of_exploding():
+    tracer = Tracer(tool="regex.direct", limit=5)
+    build_direct_dfa("(a|b)*abb", tracer=tracer)
+    assert len(tracer.steps) == 5
+    assert tracer.truncated is True
+    assert tracer.to_dict()["truncated"] is True
+
+
+def test_choice_quiz_without_choices_is_rejected():
+    """A string-valued answer with no choices would render as an
+    unanswerable question, so it fails at emit time rather than in the UI.
+    """
+    tracer = Tracer(tool="t")
+    with pytest.raises(ValueError):
+        tracer.step("k", title="t", explain="x" * 25, result="abc", ask="which?")
+
+
+# ---------------------------------------------------------------------------
+# The trace must agree with the textbook
+# ---------------------------------------------------------------------------
+
+
+def test_followpos_matches_the_textbook_for_the_classic_example():
+    """Aho/Ullman's worked example for (a|b)*abb. If the trace and the
+    textbook disagree, the tool is teaching something wrong.
+    """
+    context = trace_for("(a|b)*abb").context
+    assert context["position_symbol"] == {
+        "1": "a",
+        "2": "b",
+        "3": "a",
+        "4": "b",
+        "5": "b",
+        "6": "#",
+    }
+    assert context["followpos"] == {
+        "1": [1, 2, 3],
+        "2": [1, 2, 3],
+        "3": [4],
+        "4": [5],
+        "5": [6],
+        "6": [],
+    }
+
+
+def test_start_state_is_firstpos_of_the_root():
+    tracer = trace_for("(a|b)*abb")
+    start = next(s for s in tracer.steps if s["kind"] == "subset.start")
+    root = next(
+        s
+        for s in tracer.steps
+        if s["kind"].startswith("regex.attrs") and s["depth"] == 0
+    )
+    assert start["data"]["result"] == root["data"]["firstpos"] == [1, 2, 3]
+    assert start["data"]["result"] == tracer.context["dfa"]["states"][0]
+
+
+def test_accepting_states_are_exactly_those_holding_the_end_marker():
+    tracer = trace_for("(a|b)*abb")
+    end_position = tracer.context["end_marker_position"]
+    from_steps = {
+        s["data"]["state"]
+        for s in tracer.steps
+        if s["kind"] == "subset.state" and s["data"]["result"] is True
+    }
+    dfa = tracer.context["dfa"]
+    assert from_steps == set(dfa["accepting"])
+    assert all(end_position in dfa["states"][q] for q in from_steps)
+
+
+def test_subset_moves_account_for_every_transition():
+    """Every edge in the finished DFA must have been explained by a step,
+    and no step may claim an edge the DFA does not have.
+    """
+    tracer = trace_for("a(b|c)*d")
+    dfa = tracer.context["dfa"]
+    explained = {
+        (s["data"]["state"], s["data"]["symbol"], s["data"]["target_state"])
+        for s in tracer.steps
+        if s["kind"] == "subset.move" and s["data"]["target_state"] is not None
+    }
+    actual = {(t["from"], t["symbol"], t["to"]) for t in dfa["transitions"]}
+    assert explained == actual
+
+
+def test_blank_cells_are_explained_too():
+    """The blanks in the transition table are part of the lesson, so a
+    (state, symbol) pair with no target still gets a step.
+    """
+    tracer = trace_for("a(b|c)*d")
+    dfa = tracer.context["dfa"]
+    blanks = {
+        (s["data"]["state"], s["data"]["symbol"])
+        for s in tracer.steps
+        if s["kind"] == "subset.move" and s["data"]["target_state"] is None
+    }
+    filled = {(t["from"], t["symbol"]) for t in dfa["transitions"]}
+    expected = {
+        (q, symbol)
+        for q in range(dfa["num_states"])
+        for symbol in dfa["alphabet"]
+        if (q, symbol) not in filled
+    }
+    assert blanks == expected
+
+
+def test_desugaring_is_reported():
+    """`a+`, `a?` and `[a-c]` are rewritten away during parsing and leave
+    no trace in the final tree, which is exactly why students ask where
+    their `+` went.
+    """
+    kinds = lambda p: [
+        s["data"]["result"] for s in trace_for(p).steps if s["kind"] == "regex.desugar"
+    ]
+    assert kinds("a+") == ["aa*"]
+    assert kinds("a?") == ["a|ε"]
+    assert kinds("[a-c]") == ["a|b|c"]
+    assert kinds("(a|b)*abb") == []
+
+
+def test_end_marker_is_never_shown_as_its_real_character():
+    """END_MARKER is a Unicode Private Use Area character; leaking it to
+    the UI renders as a blank box or a tofu glyph.
+    """
+    tracer = trace_for("(a|b)*abb")
+    blob = repr(tracer.to_dict())
+    assert END_MARKER not in blob
+    assert "#" in tracer.context["position_symbol"].values()
+
+
+# ---------------------------------------------------------------------------
+# Tree serialization
+# ---------------------------------------------------------------------------
+
+
+def test_tree_to_dict_without_attrs_has_null_annotations():
+    tree = tree_to_dict(parse_regex("ab"))
+    assert tree["kind"] == "Concat"
+    assert tree["nullable"] is None
+    assert tree["firstpos"] is None
+    assert tree["left"]["symbol"] == "a"
+    assert tree["right"]["symbol"] == "b"
+
+
+def test_tree_node_ids_are_unique_and_preorder():
+    tree = parse_regex("(a|b)*abb")
+    ids = assign_node_ids(tree)
+    assert len(set(ids.values())) == len(ids)
+    assert ids[id(tree)] == "n1", "the root is visited first"
+    serialized = tree_to_dict(tree, node_ids=ids)
+    assert serialized["id"] == "n1"
+
+
+def test_tree_child_keys_are_the_dataclass_field_names():
+    """AstTreeView labels children by their key, so these names are a
+    contract with the frontend, not an implementation detail.
+    """
+    assert set(tree_to_dict(parse_regex("a|b"))) >= {"left", "right"}
+    assert "child" in tree_to_dict(parse_regex("a*"))
+
+
+def test_annotated_tree_carries_followpos_on_leaves_only():
+    tracer = trace_for("(a|b)*abb")
+    tree = tracer.context["tree"]
+
+    def walk(node):
+        yield node
+        for key in ("left", "right", "child"):
+            if key in node:
+                yield from walk(node[key])
+
+    for node in walk(tree):
+        if node["kind"] == "Leaf":
+            assert node["position"] is not None, node
+            assert node["followpos"] is not None, node
+        else:
+            assert node["followpos"] is None, node
+        if node["kind"] not in {"Epsilon"}:
+            assert node["firstpos"] is not None, node
+
+
+def test_to_regex_round_trips_the_presets():
+    """The renderer is what the desugaring steps quote, so it has to be
+    faithful: re-parsing its output must give the same language.
+    """
+    for pattern in ["(a|b)*abb", "a(b|c)*d", "a|bc", "(ab|c)*", "a*b*"]:
+        rendered = to_regex(parse_regex(pattern))
+        original = build_direct_dfa(pattern)
+        reparsed = build_direct_dfa(rendered)
+        for text in ["", "a", "b", "ab", "abb", "abc", "ad", "abcd", "c"]:
+            assert original.match(text) == reparsed.match(text), (
+                pattern,
+                rendered,
+                text,
+            )
+
+
+# ---------------------------------------------------------------------------
+# Endpoint
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("pattern", PRESET_PATTERNS)
+def test_steps_endpoint_returns_a_usable_trace(pattern):
+    response = client.post("/api/regex/steps", json={"pattern": pattern})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["schema"] == SCHEMA
+    assert body["tool"] == "regex.direct"
+    assert body["steps"]
+    assert body["universe"]["kind"] == "position"
+    # The page renders the final DFA and reveals it via highlight, so the
+    # trace has to carry it.
+    assert body["context"]["dfa"]["num_states"] >= 1
+    assert body["context"]["tree"]["kind"]
+
+
+def test_steps_endpoint_dfa_matches_the_direct_endpoint():
+    """The Teach me view and the Result view must describe the same DFA,
+    or the toggle contradicts itself.
+    """
+    pattern = "(a|b)*abb"
+    steps = client.post("/api/regex/steps", json={"pattern": pattern}).json()
+    direct = client.post("/api/regex/direct", json={"pattern": pattern}).json()
+    assert steps["context"]["dfa"] == direct
+
+
+def test_steps_endpoint_rejects_a_bad_pattern():
+    response = client.post("/api/regex/steps", json={"pattern": "(a|"})
+    assert response.status_code == 400
+    assert "detail" in response.json()
+
+
+def test_steps_endpoint_rejects_an_uninstrumented_method():
+    response = client.post(
+        "/api/regex/steps", json={"pattern": "ab", "method": "indirect"}
+    )
+    assert response.status_code == 422

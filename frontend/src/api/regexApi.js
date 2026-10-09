@@ -29,6 +29,15 @@ export async function matchPattern(pattern, text, method = "direct") {
   return data;
 }
 
+// The teaching counterpart to buildDirectDfa: the same construction, but
+// with every intermediate step (position numbering, the firstpos/lastpos
+// table, each followpos rule, the transition table cell by cell) plus the
+// annotated syntax tree, which no other endpoint returns.
+export async function fetchRegexSteps(pattern, method = "direct") {
+  const { data } = await apiClient.post("/api/regex/steps", { pattern, method });
+  return data;
+}
+
 export async function compareMethods(pattern, runs = 10) {
   const { data } = await apiClient.post("/api/regex/compare", {
     pattern,

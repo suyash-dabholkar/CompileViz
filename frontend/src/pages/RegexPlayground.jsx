@@ -1,6 +1,8 @@
 import { useState } from "react";
 import DfaGraph from "../components/DfaGraph";
 import PresetPicker from "../components/PresetPicker";
+import TraceViewer from "../components/TraceViewer";
+import RegexDirectSteps from "../components/steps/RegexDirectSteps";
 import { Panel } from "../components/ui/Panel";
 import { Button } from "../components/ui/Button";
 import { REGEX_PRESETS } from "../presets/presets";
@@ -9,6 +11,7 @@ import {
   buildIndirectDfa,
   compareMethods,
   extractErrorMessage,
+  fetchRegexSteps,
   matchPattern,
 } from "../api/regexApi";
 
@@ -19,6 +22,8 @@ export default function RegexPlayground() {
   const [directDfa, setDirectDfa] = useState(null);
   const [indirectDfa, setIndirectDfa] = useState(null);
   const [comparison, setComparison] = useState(null);
+  const [trace, setTrace] = useState(null);
+  const [mode, setMode] = useState("result");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
@@ -31,19 +36,22 @@ export default function RegexPlayground() {
     setError(null);
     setMatchResult(null);
     try {
-      const [direct, indirect, compare] = await Promise.all([
+      const [direct, indirect, compare, steps] = await Promise.all([
         buildDirectDfa(pattern),
         buildIndirectDfa(pattern),
         compareMethods(pattern),
+        fetchRegexSteps(pattern, "direct"),
       ]);
       setDirectDfa(direct);
       setIndirectDfa(indirect);
       setComparison(compare);
+      setTrace(steps);
     } catch (err) {
       setError(extractErrorMessage(err));
       setDirectDfa(null);
       setIndirectDfa(null);
       setComparison(null);
+      setTrace(null);
     } finally {
       setLoading(false);
     }
@@ -95,7 +103,44 @@ export default function RegexPlayground() {
         </div>
       )}
 
-      {comparison && (
+      {trace && (
+        <div className="flex items-center gap-3">
+          <div className="flex" role="tablist" aria-label="View">
+            {[
+              ["result", "Result"],
+              ["teach", "Teach me"],
+            ].map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                role="tab"
+                aria-selected={mode === id}
+                onClick={() => setMode(id)}
+                className={`-ml-px border px-3 py-1.5 font-mono text-xs uppercase tracking-wide transition-colors first:ml-0 ${
+                  mode === id
+                    ? "border-ink bg-ink text-paper"
+                    : "border-graph bg-white text-ink-soft hover:bg-paper"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <p className="text-xs text-ink-faint">
+            {mode === "result"
+              ? "The finished DFAs, both methods side by side."
+              : "The direct method, one step at a time. Arrow keys to walk it."}
+          </p>
+        </div>
+      )}
+
+      {mode === "teach" && trace && (
+        <TraceViewer trace={trace}>
+          {(props) => <RegexDirectSteps {...props} />}
+        </TraceViewer>
+      )}
+
+      {mode === "result" && comparison && (
         <Panel variant="quiet" className="!p-0">
           <div className="grid grid-cols-1 sm:grid-cols-2 divide-y sm:divide-y-0 sm:divide-x divide-graph">
             <div className="p-4">
@@ -122,7 +167,7 @@ export default function RegexPlayground() {
         </Panel>
       )}
 
-      {(directDfa || indirectDfa) && (
+      {mode === "result" && (directDfa || indirectDfa) && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <Panel title="Direct method DFA">
             <DfaGraph dfa={directDfa} />

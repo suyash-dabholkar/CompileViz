@@ -13,11 +13,13 @@ Mounted at /api/regex in app.main, so the full paths are:
     POST /api/regex/thompson   -> the raw NFA, before subset construction
     POST /api/regex/match      -> test one string against one pattern
     POST /api/regex/compare    -> the Milestone 3 benchmark, both methods at once
+    POST /api/regex/steps      -> the same construction, step by step, for the
+                                  teaching UI
 """
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
@@ -30,6 +32,7 @@ from app.automata import (
     compare_construction_methods,
 )
 from app.automata.minimization import minimize_dfa
+from app.trace import Tracer
 
 router = APIRouter()
 
@@ -62,6 +65,14 @@ class CompareRequest(BaseModel):
 class MinimizeRequest(BaseModel):
     pattern: str = Field(..., min_length=1, max_length=200)
     method: Literal["direct", "indirect"] = "indirect"
+
+
+class StepsRequest(BaseModel):
+    pattern: str = Field(..., min_length=1, max_length=200)
+    # Only the direct method is instrumented so far. Declaring the literal
+    # instead of accepting "indirect" and failing at runtime means an
+    # unsupported method is a clear 422 rather than a 500.
+    method: Literal["direct"] = "direct"
 
 
 # ---------------------------------------------------------------------------
@@ -117,6 +128,29 @@ class CompareOut(BaseModel):
     direct_method: MethodStatsOut
     indirect_method: MethodStatsOut
     state_count_difference: int
+
+
+class TraceOut(BaseModel):
+    """One step trace, in the shape every tool's trace shares.
+
+    Deliberately loose about `context` and `steps`: a step's `data` holds
+    whatever that particular algorithm computed, so pinning it down here
+    would mean a new model per step kind for no gain. Same reasoning as
+    ParseOut.ast in compiler_routes.py. The invariants that the frontend
+    actually relies on (every step has a `data.result`, every `highlight`
+    key is present, every `explain` is non-empty) are enforced in
+    app/trace.py and checked in tests/test_trace.py.
+    """
+    model_config = ConfigDict(populate_by_name=True)
+    # `schema` shadows a BaseModel attribute, so it follows the same
+    # alias pattern DFATransitionOut already uses for `from`.
+    schema_: str = Field(..., alias="schema")
+    tool: str
+    title: str
+    truncated: bool
+    universe: dict[str, Any] | None
+    context: dict[str, Any]
+    steps: list[dict[str, Any]]
 
 
 class MinimizeOut(BaseModel):
@@ -197,6 +231,30 @@ def compare_endpoint(request: CompareRequest) -> dict:
     except RegexSyntaxError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return result.to_dict()
+
+
+@router.post("/steps", response_model=TraceOut)
+def steps_endpoint(request: StepsRequest) -> dict:
+    """Build a DFA and return every intermediate step of the construction.
+
+    This is the teaching counterpart to /direct. That endpoint answers
+    "what is the DFA"; this one answers "how was it built" - the position
+    numbering, the nullable/firstpos/lastpos table, each followpos rule
+    application, and the transition table filled one cell at a time.
+
+    A separate route rather than a flag on /direct: /direct has a strict
+    DFAOut response_model, so an optional trace field would add
+    "trace": null to every existing response for no benefit.
+    """
+    tracer = Tracer(
+        tool=f"regex.{request.method}",
+        title=f"Direct method (followpos) for {request.pattern}",
+    )
+    try:
+        build_direct_dfa(request.pattern, tracer=tracer)
+    except RegexSyntaxError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return tracer.to_dict()
 
 
 @router.post("/minimize", response_model=MinimizeOut)
