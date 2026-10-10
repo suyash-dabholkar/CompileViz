@@ -265,6 +265,30 @@ def steps_endpoint(request: StepsRequest) -> dict:
     return tracer.to_dict()
 
 
+@router.post("/minimize/steps", response_model=TraceOut)
+def minimize_steps_endpoint(request: MinimizeRequest) -> dict:
+    """Minimize a DFA and return every round of partition refinement.
+
+    The DFA is built without a tracer on purpose: this trace is about
+    minimization, and mixing in how the DFA was constructed would bury
+    the lesson. Use /steps for that half.
+    """
+    build_fn = build_direct_dfa if request.method == "direct" else build_indirect_dfa
+    try:
+        dfa = build_fn(request.pattern)
+    except RegexSyntaxError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    tracer = Tracer(
+        tool="dfa.minimize",
+        title=f"Partition refinement for {request.pattern}",
+    )
+    minimize_dfa(dfa, tracer=tracer)
+    tracer.context["pattern"] = request.pattern
+    tracer.context["method"] = request.method
+    return tracer.to_dict()
+
+
 @router.post("/minimize", response_model=MinimizeOut)
 def minimize_endpoint(request: MinimizeRequest) -> dict:
     """Build a DFA via the requested method, then minimize it with

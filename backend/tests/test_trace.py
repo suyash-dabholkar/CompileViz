@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import pytest
 from app.automata.direct_dfa import END_MARKER, build_direct_dfa
+from app.automata.minimization import minimize_dfa
 from app.automata.regex_parser import (
     assign_node_ids,
     parse_regex,
@@ -39,6 +40,13 @@ PRESET_PATTERNS = [
 
 
 METHODS = {"direct": build_direct_dfa, "indirect": build_indirect_dfa}
+
+
+def minimize_trace_for(pattern: str, method: str = "indirect") -> Tracer:
+    dfa = METHODS[method](pattern)
+    tracer = Tracer(tool="dfa.minimize", title=f"Refinement for {pattern}")
+    minimize_dfa(dfa, tracer=tracer)
+    return tracer
 
 
 def trace_for(pattern: str, method: str = "direct") -> Tracer:
@@ -507,3 +515,166 @@ def test_indirect_steps_endpoint_dfa_matches_the_indirect_endpoint():
     ).json()
     plain = client.post("/api/regex/indirect", json={"pattern": pattern}).json()
     assert steps["context"]["dfa"] == plain
+
+
+# ---------------------------------------------------------------------------
+# DFA minimization: partition refinement
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("pattern", PRESET_PATTERNS)
+def test_minimization_tracing_changes_nothing(pattern):
+    """partition_trace predates the tracer and both the Result view and
+    test_minimize_endpoint.py depend on it, so it has to come back
+    byte-identical whether or not anyone is watching.
+    """
+    dfa = build_indirect_dfa(pattern)
+    traced = minimize_dfa(dfa, tracer=Tracer(tool="dfa.minimize"))
+    plain = minimize_dfa(dfa)
+    assert traced.minimized.to_dict() == plain.minimized.to_dict()
+    assert traced.state_mapping == plain.state_mapping
+    assert traced.partition_trace == plain.partition_trace
+
+
+@pytest.mark.parametrize("pattern", PRESET_PATTERNS)
+def test_minimization_steps_satisfy_the_schema(pattern):
+    steps = minimize_trace_for(pattern).steps
+    assert steps
+    for index, step in enumerate(steps):
+        where = f"{pattern} step {index} ({step['kind']})"
+        assert step["i"] == index, where
+        assert len(step["explain"]) >= 20, where
+        assert "result" in step["data"], where
+        assert set(step["highlight"]) == set(HIGHLIGHT_KEYS), where
+
+
+def test_a_group_that_survives_is_explained_too():
+    """Why a group survives a round is half of partition refinement. A
+    trace that only reported splits would read as a series of events
+    with no reasoning between them.
+    """
+    steps = minimize_trace_for("(a|b)*abb").steps
+    groups = [s for s in steps if s["kind"] == "min.group"]
+    assert any(s["data"]["result"] is False for s in groups), "no survival reported"
+    assert any(s["data"]["result"] is True for s in groups), "no split reported"
+
+
+def test_a_split_names_the_symbol_that_caused_it():
+    """The one fact partition_trace can never show: it records the
+    before and after, never the reason.
+    """
+    for step in minimize_trace_for("(a|b)*abb").steps:
+        if step["kind"] != "min.group" or step["data"]["result"] is not True:
+            continue
+        distinguishers = step["data"]["distinguishers"]
+        assert distinguishers, step["title"]
+        # The named symbols must be ones the states genuinely disagree on.
+        for symbol in distinguishers:
+            targets = {row[symbol] for row in step["data"]["signatures"].values()}
+            assert len(targets) > 1, (step["title"], symbol)
+
+
+def test_a_surviving_group_names_no_distinguisher():
+    for step in minimize_trace_for("(a|b)*abb").steps:
+        if step["kind"] != "min.group" or step["data"]["result"] is not False:
+            continue
+        assert step["data"]["distinguishers"] == []
+        rows = list(step["data"]["signatures"].values())
+        assert all(row == rows[0] for row in rows), step["title"]
+
+
+def test_refinement_only_ever_splits():
+    """Groups may divide but must never merge or lose states, so each
+    round's partition is a refinement of the one before it.
+    """
+    steps = minimize_trace_for("[a-zA-Z][a-zA-Z0-9]*").steps
+    snapshots = [
+        [tuple(g) for g in s["data"]["groups"]]
+        for s in steps
+        if s["kind"] in {"min.init", "min.sweep", "min.stable"}
+    ]
+    for earlier, later in zip(snapshots, snapshots[1:]):
+        assert len(later) >= len(earlier), "the partition got coarser"
+        for group in later:
+            parent = [g for g in earlier if set(group) <= set(g)]
+            assert parent, f"{group} is not inside any earlier group"
+        assert sorted(s for g in earlier for s in g) == sorted(
+            s for g in later for s in g
+        ), "a state went missing"
+
+
+def test_merges_cover_every_state_exactly_once():
+    tracer = minimize_trace_for("(a|b)*abb")
+    merged = [
+        state
+        for step in tracer.steps
+        if step["kind"] == "min.merge"
+        for state in step["data"]["result"]
+    ]
+    original = tracer.context["original"]["num_states"]
+    assert sorted(merged) == list(range(original))
+
+
+def test_merge_steps_agree_with_the_state_mapping():
+    """The groups are re-ordered after the refinement loop so the start
+    state's group becomes q0, which means the merge steps, not the
+    partition trace, are the authoritative group-to-state mapping.
+    """
+    tracer = minimize_trace_for("(a|b)*abb")
+    mapping = tracer.context["state_mapping"]
+    for step in tracer.steps:
+        if step["kind"] != "min.merge":
+            continue
+        for state in step["data"]["result"]:
+            assert mapping[str(state)] == step["data"]["minimized_state"]
+
+
+def test_exactly_one_merge_claims_the_start_state():
+    tracer = minimize_trace_for("(a|b)*abb")
+    starts = [
+        s for s in tracer.steps if s["kind"] == "min.merge" and s["data"]["is_start"]
+    ]
+    assert len(starts) == 1
+    assert starts[0]["data"]["minimized_state"] == tracer.context["minimized"]["start"]
+
+
+def test_minimize_steps_endpoint_matches_the_minimize_endpoint():
+    pattern = "(a|b)*abb"
+    body = {"pattern": pattern, "method": "indirect"}
+    steps = client.post("/api/regex/minimize/steps", json=body).json()
+    plain = client.post("/api/regex/minimize", json=body).json()
+    assert steps["tool"] == "dfa.minimize"
+    assert steps["context"]["original"] == plain["original"]
+    assert steps["context"]["minimized"] == plain["minimized"]
+    assert steps["context"]["state_mapping"] == plain["state_mapping"]
+    assert steps["context"]["partition_trace"] == plain["partition_trace"]
+
+
+def test_minimize_steps_endpoint_rejects_a_bad_pattern():
+    response = client.post("/api/regex/minimize/steps", json={"pattern": "(a|"})
+    assert response.status_code == 400
+
+
+def test_minimizing_an_already_minimal_dfa_still_explains_itself():
+    """The direct method is minimal by construction, so this is the
+    "see, nothing changes" case - but it is not the "nothing happens"
+    case, and the distinction is the lesson.
+
+    The initial partition is only accepting vs non-accepting, which is
+    coarse. Refinement still has to split it all the way down to
+    singletons; that work is exactly how minimality gets *proven*. What
+    makes the DFA already minimal is that no two states end up sharing a
+    group, not that no group ever splits.
+    """
+    tracer = minimize_trace_for("(a|b)*abb", "direct")
+    assert (
+        tracer.context["original"]["num_states"]
+        == (tracer.context["minimized"]["num_states"])
+    )
+    assert any(s["kind"] == "min.stable" for s in tracer.steps)
+
+    merges = [s for s in tracer.steps if s["kind"] == "min.merge"]
+    assert merges, "nothing was merged, not even trivially"
+    assert all(len(s["data"]["result"]) == 1 for s in merges), (
+        "an already-minimal DFA must end with every group a singleton"
+    )
