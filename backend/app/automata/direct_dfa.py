@@ -32,9 +32,12 @@ from app.automata.regex_parser import (
     RegexSyntaxError,
     Star,
     Union,
+    assign_node_ids,
     parse_regex,
     to_regex,
+    tree_to_dict,
 )
+from app.trace import fmt_set as _fmt
 
 END_MARKER = "\ue000"  # Unicode Private Use Area, never a real regex symbol
 # Previously "#": that collided with any regex whose alphabet legitimately
@@ -72,13 +75,6 @@ def display_symbol(symbol: str, end_marker: str = None) -> str:
     return "#" if symbol == (end_marker or END_MARKER) else symbol
 
 
-def _fmt(positions) -> str:
-    """Format a position set the way a textbook does: {1, 2, 3}."""
-    if not positions:
-        return "{}"
-    return "{" + ", ".join(str(p) for p in sorted(positions)) + "}"
-
-
 def _ordinal(n: int) -> str:
     """1st, 2nd, 3rd, 4th. Only used in explanation text, but "the 3th
     symbol" on screen during a demo undercuts everything else on it.
@@ -88,90 +84,6 @@ def _ordinal(n: int) -> str:
     else:
         suffix = {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
     return f"{n}{suffix}"
-
-
-def assign_node_ids(root: Node) -> dict[int, str]:
-    """Give every node a stable pre-order id ("n1", "n2", ...).
-
-    A side table keyed by id(node), exactly like `attrs` below, rather
-    than a new dataclass field: these nodes are @dataclass instances with
-    a generated __eq__ that the existing tests compare directly, and
-    clone() would have to be taught to copy (or deliberately not copy)
-    anything we added.
-    """
-    ids: dict[int, str] = {}
-
-    def visit(node: Node) -> None:
-        ids[id(node)] = f"n{len(ids) + 1}"
-        if isinstance(node, (Concat, Union)):
-            visit(node.left)
-            visit(node.right)
-        elif isinstance(node, Star):
-            visit(node.child)
-
-    visit(root)
-    return ids
-
-
-def tree_to_dict(
-    node: Node,
-    *,
-    attrs: _Attrs = None,
-    followpos: dict[int, set[int]] = None,
-    node_ids: dict[int, str] = None,
-    end_marker: str = END_MARKER,
-) -> dict:
-    """Serialize a syntax tree, optionally annotated with the attributes
-    the followpos algorithm computes.
-
-    A module function rather than a to_dict() on each of the five node
-    classes: the annotations live in `attrs`, which regex_parser.py knows
-    nothing about, and one function beats five methods that each need the
-    same three extra arguments.
-
-    Child keys are the dataclass field names (left / right / child) so the
-    frontend's generic AstTreeView labels them without any changes. With
-    attrs=None every annotation field is null, which is what the "here is
-    the parse tree" view wants before any attributes exist.
-    """
-    if node_ids is None:
-        node_ids = assign_node_ids(node)
-
-    nullable = first = last = None
-    if attrs is not None and id(node) in attrs:
-        nullable, first, last = attrs[id(node)]
-
-    out: dict = {
-        "id": node_ids.get(id(node)),
-        "kind": type(node).__name__,
-        "symbol": None,
-        "position": None,
-        "nullable": nullable,
-        "firstpos": sorted(first) if first is not None else None,
-        "lastpos": sorted(last) if last is not None else None,
-        "followpos": None,
-    }
-
-    if isinstance(node, Leaf):
-        out["symbol"] = display_symbol(node.symbol, end_marker)
-        out["position"] = node.position
-        if node.symbol == end_marker:
-            out["is_end_marker"] = True
-        # followpos belongs to positions, not to nodes, so only a leaf
-        # ever carries one.
-        if followpos is not None and node.position in followpos:
-            out["followpos"] = sorted(followpos[node.position])
-
-    kwargs = dict(
-        attrs=attrs, followpos=followpos, node_ids=node_ids, end_marker=end_marker
-    )
-    if isinstance(node, (Concat, Union)):
-        out["left"] = tree_to_dict(node.left, **kwargs)
-        out["right"] = tree_to_dict(node.right, **kwargs)
-    elif isinstance(node, Star):
-        out["child"] = tree_to_dict(node.child, **kwargs)
-
-    return out
 
 
 def assign_positions(root: Node, *, tracer=None, node_ids=None) -> dict[int, str]:

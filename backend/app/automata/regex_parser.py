@@ -127,6 +127,100 @@ def _render(node: Node, min_prec: int) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Serialization for the teaching layer
+#
+# These live here, next to the node types, because both construction
+# methods need them: the direct method annotates the tree with
+# nullable/firstpos/lastpos, and Thompson's construction highlights the
+# node whose fragment it is currently building.
+# ---------------------------------------------------------------------------
+
+def assign_node_ids(root: Node) -> dict[int, str]:
+    """Give every node a stable pre-order id ("n1", "n2", ...).
+
+    A side table keyed by id(node) rather than a new dataclass field:
+    these nodes are @dataclass instances with a generated __eq__ that the
+    tests compare directly, and clone() above would have to be taught to
+    copy (or deliberately not copy) anything we added.
+    """
+    ids: dict[int, str] = {}
+
+    def visit(node: Node) -> None:
+        ids[id(node)] = f"n{len(ids) + 1}"
+        if isinstance(node, (Concat, Union)):
+            visit(node.left)
+            visit(node.right)
+        elif isinstance(node, Star):
+            visit(node.child)
+
+    visit(root)
+    return ids
+
+
+def tree_to_dict(
+    node: Node,
+    *,
+    attrs: dict = None,
+    followpos: dict = None,
+    node_ids: dict = None,
+    end_marker: str = None,
+) -> dict:
+    """Serialize a syntax tree, optionally annotated with the attributes
+    the followpos algorithm computes.
+
+    `attrs` maps id(node) -> (nullable, firstpos, lastpos); this module
+    does not care who built it. With attrs=None every annotation field is
+    null, which is what the plain "here is the parse tree" view wants, and
+    what Thompson's construction uses.
+
+    Child keys are the dataclass field names (left / right / child) so the
+    frontend's generic AstTreeView labels them with no changes.
+    """
+    if node_ids is None:
+        node_ids = assign_node_ids(node)
+
+    nullable = first = last = None
+    if attrs is not None and id(node) in attrs:
+        nullable, first, last = attrs[id(node)]
+
+    out: dict = {
+        "id": node_ids.get(id(node)),
+        "kind": type(node).__name__,
+        "symbol": None,
+        "position": None,
+        "nullable": nullable,
+        "firstpos": sorted(first) if first is not None else None,
+        "lastpos": sorted(last) if last is not None else None,
+        "followpos": None,
+    }
+
+    if isinstance(node, Leaf):
+        # The real end marker is a Private Use Area character and must
+        # never reach the UI as a glyph; the textbook writes it as '#'.
+        if end_marker is not None and node.symbol == end_marker:
+            out["symbol"] = "#"
+            out["is_end_marker"] = True
+        else:
+            out["symbol"] = node.symbol
+        out["position"] = node.position
+        # followpos belongs to positions, not to nodes, so only a leaf
+        # ever carries one.
+        if followpos is not None and node.position in followpos:
+            out["followpos"] = sorted(followpos[node.position])
+
+    kwargs = dict(
+        attrs=attrs, followpos=followpos, node_ids=node_ids, end_marker=end_marker
+    )
+    if isinstance(node, (Concat, Union)):
+        out["left"] = tree_to_dict(node.left, **kwargs)
+        out["right"] = tree_to_dict(node.right, **kwargs)
+    elif isinstance(node, Star):
+        out["child"] = tree_to_dict(node.child, **kwargs)
+
+    return out
+
+
+# ---------------------------------------------------------------------------
 # Tokenizer
 # ---------------------------------------------------------------------------
 

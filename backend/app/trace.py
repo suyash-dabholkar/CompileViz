@@ -36,6 +36,17 @@ SCHEMA = "compileviz.trace/1"
 HIGHLIGHT_KEYS = ("nodes", "positions", "states", "edges", "rows", "lines", "chars")
 
 
+def fmt_set(values) -> str:
+    """Format a set the way a textbook does: {1, 2, 3}.
+
+    Used all over the explanation strings, by both construction methods,
+    so it lives here rather than in either one of them.
+    """
+    if not values:
+        return "{}"
+    return "{" + ", ".join(str(v) for v in sorted(values)) + "}"
+
+
 def _norm(value):
     """Make a value JSON-safe and stable.
 

@@ -41,6 +41,7 @@ router = APIRouter()
 # Request models
 # ---------------------------------------------------------------------------
 
+
 class RegexRequest(BaseModel):
     pattern: str = Field(..., min_length=1, max_length=200)
 
@@ -69,15 +70,13 @@ class MinimizeRequest(BaseModel):
 
 class StepsRequest(BaseModel):
     pattern: str = Field(..., min_length=1, max_length=200)
-    # Only the direct method is instrumented so far. Declaring the literal
-    # instead of accepting "indirect" and failing at runtime means an
-    # unsupported method is a clear 422 rather than a 500.
-    method: Literal["direct"] = "direct"
+    method: Literal["direct", "indirect"] = "direct"
 
 
 # ---------------------------------------------------------------------------
 # Response models
 # ---------------------------------------------------------------------------
+
 
 class DFATransitionOut(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
@@ -141,6 +140,7 @@ class TraceOut(BaseModel):
     key is present, every `explain` is non-empty) are enforced in
     app/trace.py and checked in tests/test_trace.py.
     """
+
     model_config = ConfigDict(populate_by_name=True)
     # `schema` shadows a BaseModel attribute, so it follows the same
     # alias pattern DFATransitionOut already uses for `from`.
@@ -158,13 +158,16 @@ class MinimizeOut(BaseModel):
     method: str
     original: DFAOut
     minimized: DFAOut
-    state_mapping: dict[str, int]  # original state index (as string) -> minimized state index
+    state_mapping: dict[
+        str, int
+    ]  # original state index (as string) -> minimized state index
     partition_trace: list[list[list[int]]]
 
 
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
+
 
 @router.post("/direct", response_model=DFAOut)
 def direct_dfa_endpoint(request: RegexRequest) -> dict:
@@ -246,12 +249,17 @@ def steps_endpoint(request: StepsRequest) -> dict:
     DFAOut response_model, so an optional trace field would add
     "trace": null to every existing response for no benefit.
     """
+    build_fn, label = (
+        (build_direct_dfa, "Direct method (followpos)")
+        if request.method == "direct"
+        else (build_indirect_dfa, "Indirect method (Thompson + subset construction)")
+    )
     tracer = Tracer(
         tool=f"regex.{request.method}",
-        title=f"Direct method (followpos) for {request.pattern}",
+        title=f"{label} for {request.pattern}",
     )
     try:
-        build_direct_dfa(request.pattern, tracer=tracer)
+        build_fn(request.pattern, tracer=tracer)
     except RegexSyntaxError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return tracer.to_dict()

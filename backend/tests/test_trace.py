@@ -12,13 +12,14 @@ followpos table is worse than no visualization at all.
 from __future__ import annotations
 
 import pytest
-from app.automata.direct_dfa import (
-    END_MARKER,
+from app.automata.direct_dfa import END_MARKER, build_direct_dfa
+from app.automata.regex_parser import (
     assign_node_ids,
-    build_direct_dfa,
+    parse_regex,
+    to_regex,
     tree_to_dict,
 )
-from app.automata.regex_parser import parse_regex, to_regex
+from app.automata.subset_construction import build_indirect_dfa
 from app.main import app
 from app.trace import HIGHLIGHT_KEYS, SCHEMA, Tracer
 from fastapi.testclient import TestClient
@@ -37,9 +38,12 @@ PRESET_PATTERNS = [
 ]
 
 
-def trace_for(pattern: str) -> Tracer:
-    tracer = Tracer(tool="regex.direct", title=f"Direct method for {pattern}")
-    build_direct_dfa(pattern, tracer=tracer)
+METHODS = {"direct": build_direct_dfa, "indirect": build_indirect_dfa}
+
+
+def trace_for(pattern: str, method: str = "direct") -> Tracer:
+    tracer = Tracer(tool=f"regex.{method}", title=f"{method} method for {pattern}")
+    METHODS[method](pattern, tracer=tracer)
     return tracer
 
 
@@ -48,20 +52,24 @@ def trace_for(pattern: str) -> Tracer:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.parametrize("method", ["direct", "indirect"])
 @pytest.mark.parametrize("pattern", PRESET_PATTERNS)
-def test_tracing_does_not_change_the_dfa(pattern):
-    with_trace = build_direct_dfa(pattern, tracer=Tracer(tool="regex.direct"))
-    without_trace = build_direct_dfa(pattern)
+def test_tracing_does_not_change_the_dfa(pattern, method):
+    build = METHODS[method]
+    with_trace = build(pattern, tracer=Tracer(tool=f"regex.{method}"))
+    without_trace = build(pattern)
     assert with_trace.to_dict() == without_trace.to_dict()
 
 
+@pytest.mark.parametrize("method", ["direct", "indirect"])
 @pytest.mark.parametrize("pattern", PRESET_PATTERNS)
-def test_traced_dfa_still_matches_the_same_strings(pattern):
+def test_traced_dfa_still_matches_the_same_strings(pattern, method):
     """A DFA whose construction was observed must still recognize the
     same language, not just serialize to the same dict.
     """
-    traced = build_direct_dfa(pattern, tracer=Tracer(tool="regex.direct"))
-    plain = build_direct_dfa(pattern)
+    build = METHODS[method]
+    traced = build(pattern, tracer=Tracer(tool=f"regex.{method}"))
+    plain = build(pattern)
     for text in ["", "a", "ab", "abb", "aabb", "x", "0", "01", "colour", "color"]:
         assert traced.match(text) == plain.match(text)
 
@@ -71,9 +79,10 @@ def test_traced_dfa_still_matches_the_same_strings(pattern):
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.parametrize("method", ["direct", "indirect"])
 @pytest.mark.parametrize("pattern", PRESET_PATTERNS)
-def test_every_step_satisfies_the_schema(pattern):
-    steps = trace_for(pattern).steps
+def test_every_step_satisfies_the_schema(pattern, method):
+    steps = trace_for(pattern, method).steps
     assert steps, "a construction with no steps teaches nothing"
 
     for index, step in enumerate(steps):
@@ -102,12 +111,13 @@ def test_every_step_satisfies_the_schema(pattern):
             assert isinstance(step["highlight"][key], list), f"{where}/{key}"
 
 
+@pytest.mark.parametrize("method", ["direct", "indirect"])
 @pytest.mark.parametrize("pattern", PRESET_PATTERNS)
-def test_quizzes_are_answerable(pattern):
+def test_quizzes_are_answerable(pattern, method):
     """A quiz whose answer is not in the universe it offers cannot be
     answered by picking from that universe.
     """
-    tracer = trace_for(pattern)
+    tracer = trace_for(pattern, method)
     quizzed = 0
     for step in tracer.steps:
         quiz = step["quiz"]
@@ -377,8 +387,123 @@ def test_steps_endpoint_rejects_a_bad_pattern():
     assert "detail" in response.json()
 
 
-def test_steps_endpoint_rejects_an_uninstrumented_method():
+def test_steps_endpoint_rejects_an_unknown_method():
     response = client.post(
-        "/api/regex/steps", json={"pattern": "ab", "method": "indirect"}
+        "/api/regex/steps", json={"pattern": "ab", "method": "telepathy"}
     )
     assert response.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# Indirect method: Thompson's construction + subset construction
+# ---------------------------------------------------------------------------
+
+
+def test_thompson_fragments_account_for_every_nfa_state():
+    """Every state in the finished NFA must have been introduced by some
+    fragment step. A state nobody explains is a state the diagram shows
+    appearing from nowhere.
+    """
+    tracer = trace_for("(a|b)*abb", "indirect")
+    introduced = [
+        state
+        for step in tracer.steps
+        if step["kind"].startswith("nfa.fragment.")
+        for state in step["data"]["result"]
+    ]
+    assert sorted(introduced) == list(range(tracer.context["nfa"]["num_states"]))
+    assert len(introduced) == len(set(introduced)), "a state was introduced twice"
+
+
+def test_thompson_fragment_state_counts_follow_the_rules():
+    """Thompson's rules each add a fixed number of states: two for a
+    literal, epsilon, union and star, and none at all for concatenation.
+    """
+    expected = {"leaf": 2, "epsilon": 2, "union": 2, "star": 2, "concat": 0}
+    for step in trace_for("(a|b)*ab?", "indirect").steps:
+        if not step["kind"].startswith("nfa.fragment."):
+            continue
+        rule = step["kind"].rsplit(".", 1)[1]
+        assert len(step["data"]["result"]) == expected[rule], step["kind"]
+
+
+def test_fragments_are_emitted_before_subset_construction():
+    phases = [s["phase"] for s in trace_for("(a|b)*abb", "indirect").steps]
+    runs = [p for i, p in enumerate(phases) if i == 0 or phases[i - 1] != p]
+    assert runs == ["nfa", "subset"]
+
+
+def test_move_is_reported_separately_from_its_closure():
+    """Conflating move(S, c) with the eps-closure that follows it is the
+    classic way to get subset construction wrong, so they are separate
+    steps and the closure must be a superset of the move.
+    """
+    steps = trace_for("(a|b)*abb", "indirect").steps
+    pairs = 0
+    for before, after in zip(steps, steps[1:]):
+        if before["kind"] != "subset.move" or after["kind"] != "subset.closure":
+            continue
+        pairs += 1
+        assert set(before["data"]["result"]) <= set(after["data"]["result"])
+        assert after["data"]["source"] == before["data"]["result"]
+    assert pairs > 0, "no move/closure pair in the trace"
+
+
+def test_subset_closures_account_for_every_dfa_state():
+    tracer = trace_for("a(b|c)*d", "indirect")
+    dfa = tracer.context["dfa"]
+    explained = {
+        (s["data"]["state"], s["data"]["symbol"], s["data"]["target_state"])
+        for s in tracer.steps
+        if s["kind"] == "subset.closure" and "symbol" in s["data"]
+    }
+    actual = {(t["from"], t["symbol"], t["to"]) for t in dfa["transitions"]}
+    assert explained == actual
+
+
+def test_indirect_quizzes_are_drawn_from_the_nfa_states():
+    tracer = trace_for("(a|b)*abb", "indirect")
+    assert tracer.universe["kind"] == "nfa_state"
+    assert tracer.universe["items"] == list(range(tracer.context["nfa"]["num_states"]))
+
+
+def test_indirect_context_carries_the_nfa_for_the_graph():
+    """The page renders the NFA alongside the DFA, so the trace has to
+    carry it; nothing else returns both at once.
+    """
+    body = client.post(
+        "/api/regex/steps", json={"pattern": "(a|b)*abb", "method": "indirect"}
+    ).json()
+    assert body["tool"] == "regex.indirect"
+    nfa = body["context"]["nfa"]
+    assert nfa["num_states"] > body["context"]["dfa"]["num_states"]
+    assert any(t["symbol"] == "\u03b5" for t in nfa["transitions"])
+
+
+@pytest.mark.parametrize("pattern", PRESET_PATTERNS)
+def test_both_methods_agree_on_the_language(pattern):
+    """The two Teach me views describe genuinely different machines - the
+    indirect one usually has more states - so the thing that has to match
+    is the language, not the shape. If these ever disagree, one of the two
+    lessons is teaching a wrong automaton.
+    """
+    direct = build_direct_dfa(pattern)
+    indirect = build_indirect_dfa(pattern)
+    assert direct.alphabet == indirect.alphabet
+
+    # Exercise the alphabet directly rather than with a fixed word list,
+    # so each pattern is tested on strings it can actually be picky about.
+    words = [""] + list(direct.alphabet)
+    for _ in range(3):
+        words += [w + symbol for w in words[-12:] for symbol in direct.alphabet]
+    for word in words:
+        assert direct.match(word) == indirect.match(word), (pattern, word)
+
+
+def test_indirect_steps_endpoint_dfa_matches_the_indirect_endpoint():
+    pattern = "(a|b)*abb"
+    steps = client.post(
+        "/api/regex/steps", json={"pattern": pattern, "method": "indirect"}
+    ).json()
+    plain = client.post("/api/regex/indirect", json={"pattern": pattern}).json()
+    assert steps["context"]["dfa"] == plain

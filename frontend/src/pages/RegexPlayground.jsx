@@ -3,6 +3,7 @@ import DfaGraph from "../components/DfaGraph";
 import PresetPicker from "../components/PresetPicker";
 import TraceViewer from "../components/TraceViewer";
 import RegexDirectSteps from "../components/steps/RegexDirectSteps";
+import RegexIndirectSteps from "../components/steps/RegexIndirectSteps";
 import { Panel } from "../components/ui/Panel";
 import { Button } from "../components/ui/Button";
 import { REGEX_PRESETS } from "../presets/presets";
@@ -22,8 +23,9 @@ export default function RegexPlayground() {
   const [directDfa, setDirectDfa] = useState(null);
   const [indirectDfa, setIndirectDfa] = useState(null);
   const [comparison, setComparison] = useState(null);
-  const [trace, setTrace] = useState(null);
+  const [traces, setTraces] = useState(null);
   const [mode, setMode] = useState("result");
+  const [teachMethod, setTeachMethod] = useState("direct");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
@@ -36,22 +38,27 @@ export default function RegexPlayground() {
     setError(null);
     setMatchResult(null);
     try {
-      const [direct, indirect, compare, steps] = await Promise.all([
-        buildDirectDfa(pattern),
-        buildIndirectDfa(pattern),
-        compareMethods(pattern),
-        fetchRegexSteps(pattern, "direct"),
-      ]);
+      const [direct, indirect, compare, directSteps, indirectSteps] =
+        await Promise.all([
+          buildDirectDfa(pattern),
+          buildIndirectDfa(pattern),
+          compareMethods(pattern),
+          fetchRegexSteps(pattern, "direct"),
+          fetchRegexSteps(pattern, "indirect"),
+        ]);
       setDirectDfa(direct);
       setIndirectDfa(indirect);
       setComparison(compare);
-      setTrace(steps);
+      // Both traces up front, in the same round trip as everything else:
+      // switching method is then instant, with no second spinner and no
+      // extra loading state to keep in sync.
+      setTraces({ direct: directSteps, indirect: indirectSteps });
     } catch (err) {
       setError(extractErrorMessage(err));
       setDirectDfa(null);
       setIndirectDfa(null);
       setComparison(null);
-      setTrace(null);
+      setTraces(null);
     } finally {
       setLoading(false);
     }
@@ -103,7 +110,7 @@ export default function RegexPlayground() {
         </div>
       )}
 
-      {trace && (
+      {traces && (
         <div className="flex items-center gap-3">
           <div className="flex" role="tablist" aria-label="View">
             {[
@@ -129,14 +136,52 @@ export default function RegexPlayground() {
           <p className="text-xs text-ink-faint">
             {mode === "result"
               ? "The finished DFAs, both methods side by side."
-              : "The direct method, one step at a time. Arrow keys to walk it."}
+              : "One step at a time. Arrow keys to walk it."}
           </p>
         </div>
       )}
 
-      {mode === "teach" && trace && (
-        <TraceViewer trace={trace}>
-          {(props) => <RegexDirectSteps {...props} />}
+      {mode === "teach" && traces && (
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex" role="tablist" aria-label="Construction method">
+            {[
+              ["direct", "Direct (followpos)"],
+              ["indirect", "Indirect (Thompson + subset)"],
+            ].map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                role="tab"
+                aria-selected={teachMethod === id}
+                onClick={() => setTeachMethod(id)}
+                className={`-ml-px border px-3 py-1.5 text-xs transition-colors first:ml-0 ${
+                  teachMethod === id
+                    ? "border-blueprint bg-blueprint-light text-blueprint"
+                    : "border-graph bg-white text-ink-soft hover:bg-paper"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <p className="text-xs text-ink-faint">
+            {traces[teachMethod].steps.length} steps
+          </p>
+        </div>
+      )}
+
+      {mode === "teach" && traces && (
+        // Keyed so switching pattern or method remounts cleanly rather
+        // than carrying over a step index and quiz answers from the
+        // trace that was on screen a moment ago.
+        <TraceViewer key={`${pattern}-${teachMethod}`} trace={traces[teachMethod]}>
+          {(props) =>
+            teachMethod === "direct" ? (
+              <RegexDirectSteps {...props} />
+            ) : (
+              <RegexIndirectSteps {...props} />
+            )
+          }
         </TraceViewer>
       )}
 
