@@ -31,6 +31,7 @@ from app.automata import (
     build_thompson_nfa,
     compare_construction_methods,
 )
+from app.api.trace_schema import TraceOut
 from app.automata.minimization import minimize_dfa
 from app.trace import Tracer
 
@@ -127,30 +128,6 @@ class CompareOut(BaseModel):
     direct_method: MethodStatsOut
     indirect_method: MethodStatsOut
     state_count_difference: int
-
-
-class TraceOut(BaseModel):
-    """One step trace, in the shape every tool's trace shares.
-
-    Deliberately loose about `context` and `steps`: a step's `data` holds
-    whatever that particular algorithm computed, so pinning it down here
-    would mean a new model per step kind for no gain. Same reasoning as
-    ParseOut.ast in compiler_routes.py. The invariants that the frontend
-    actually relies on (every step has a `data.result`, every `highlight`
-    key is present, every `explain` is non-empty) are enforced in
-    app/trace.py and checked in tests/test_trace.py.
-    """
-
-    model_config = ConfigDict(populate_by_name=True)
-    # `schema` shadows a BaseModel attribute, so it follows the same
-    # alias pattern DFATransitionOut already uses for `from`.
-    schema_: str = Field(..., alias="schema")
-    tool: str
-    title: str
-    truncated: bool
-    universe: dict[str, Any] | None
-    context: dict[str, Any]
-    steps: list[dict[str, Any]]
 
 
 class MinimizeOut(BaseModel):

@@ -678,3 +678,235 @@ def test_minimizing_an_already_minimal_dfa_still_explains_itself():
     assert all(len(s["data"]["result"]) == 1 for s in merges), (
         "an already-minimal DFA must end with every group a singleton"
     )
+
+
+# ---------------------------------------------------------------------------
+# Compiler pipeline: lexing and execution
+# ---------------------------------------------------------------------------
+
+from app.compiler.codegen import generate_code  # noqa: E402
+from app.compiler.interpreter import run_program  # noqa: E402
+from app.compiler.lexer import tokenize  # noqa: E402
+from app.compiler.optimizer import optimize as run_optimizer  # noqa: E402
+from app.compiler.parser import parse  # noqa: E402
+from app.compiler.tac_generator import generate_tac  # noqa: E402
+
+PROGRAM = "int x = 2 + 3;\nwhile (x > 0) { print(x); x = x - 1; }"
+
+
+def assemble(source: str):
+    return generate_code(run_optimizer(generate_tac(parse(tokenize(source).tokens).program)).after_dce)
+
+
+def lex_trace(source: str = PROGRAM) -> Tracer:
+    tracer = Tracer(tool="compiler", title="lex")
+    tokenize(source, tracer=tracer)
+    return tracer
+
+
+def vm_trace(source: str = PROGRAM) -> Tracer:
+    tracer = Tracer(tool="compiler", title="run")
+    run_program(assemble(source), tracer=tracer)
+    return tracer
+
+
+@pytest.mark.parametrize("source", [PROGRAM, "int a = 1;", 'print("hi");'])
+def test_compiler_tracing_changes_nothing(source):
+    assert tokenize(source, tracer=Tracer(tool="compiler")).to_dict() == (
+        tokenize(source).to_dict()
+    )
+    assembly = assemble(source)
+    traced = run_program(assembly, tracer=Tracer(tool="compiler"))
+    plain = run_program(assembly)
+    assert traced.to_dict() == plain.to_dict()
+
+
+@pytest.mark.parametrize("make", [lex_trace, vm_trace])
+def test_compiler_steps_satisfy_the_schema(make):
+    steps = make().steps
+    assert steps
+    for index, step in enumerate(steps):
+        where = f"step {index} ({step['kind']})"
+        assert step["i"] == index, where
+        assert len(step["explain"]) >= 20, where
+        assert "result" in step["data"], where
+        assert set(step["highlight"]) == set(HIGHLIGHT_KEYS), where
+
+
+# -- lexer -------------------------------------------------------------------
+
+def test_every_token_is_accounted_for_by_a_token_step():
+    """Trivia is scanned but dropped before the parser sees it, so the
+    trace has to report the skipped tokens too or whole stretches of
+    source look like they vanished.
+    """
+    tracer = lex_trace()
+    emitted = [
+        s["data"]["result"]
+        for s in tracer.steps
+        if s["kind"] == "lex.token" and not s["data"]["skipped"]
+    ]
+    assert emitted == [t.value for t in tokenize(PROGRAM).tokens]
+    assert any(
+        s["kind"] == "lex.token" and s["data"]["skipped"] for s in tracer.steps
+    ), "whitespace was never reported"
+
+
+def test_token_steps_cover_the_source_exactly_once():
+    covered = []
+    for step in lex_trace().steps:
+        if step["kind"] == "lex.token":
+            covered += step["highlight"]["chars"]
+    assert sorted(covered) == list(range(len(PROGRAM)))
+
+
+def test_keywords_are_reported_as_a_reclassification():
+    """Keywords have no pattern of their own; they fall out of
+    IDENTIFIER and get renamed. That is a real step, not a detail.
+    """
+    step = next(
+        s
+        for s in lex_trace("int x;").steps
+        if s["kind"] == "lex.token" and s["data"]["result"] == "int"
+    )
+    assert step["data"]["matched_as"] == "IDENTIFIER"
+    assert step["data"]["token_type"] == "KEYWORD"
+    assert step["data"]["reclassified"] is True
+
+
+def test_the_winner_is_the_longest_candidate():
+    for step in lex_trace().steps:
+        if step["kind"] != "lex.compete":
+            continue
+        longest = max(c["length"] for c in step["data"]["candidates"])
+        assert step["data"]["length"] == longest, step["title"]
+        winner = next(
+            c for c in step["data"]["candidates"] if c["type"] == step["data"]["result"]
+        )
+        assert winner["length"] == longest
+
+
+def test_the_scan_walk_reaches_the_length_the_competition_promised():
+    """The per-character replay must agree with the match it is
+    replaying, or the animation tells a different story from the result.
+    """
+    steps = lex_trace().steps
+    for i, step in enumerate(steps):
+        if step["kind"] != "lex.compete":
+            continue
+        walk = []
+        for later in steps[i + 1:]:
+            if later["kind"] != "lex.scan":
+                break
+            walk.append(later)
+        assert walk, step["title"]
+        assert walk[-1]["data"]["best_length"] == step["data"]["length"], step["title"]
+
+
+def test_an_unmatched_character_is_explained():
+    tracer = lex_trace("int x = 1 @ 2;")
+    errors = [s for s in tracer.steps if s["kind"] == "lex.error"]
+    assert len(errors) == 1
+    assert errors[0]["data"]["result"] == "@"
+
+
+# -- virtual machine ---------------------------------------------------------
+
+def test_vm_steps_follow_the_program_counter():
+    """Each step's next_pc must be where the following step actually
+    starts, or the listing's arrow would jump around at random.
+    """
+    steps = [s for s in vm_trace().steps if s["kind"] in {"vm.step", "vm.jump"}]
+    for before, after in zip(steps, steps[1:]):
+        assert before["data"]["next_pc"] == after["data"]["pc"], before["title"]
+
+
+def test_vm_stack_is_continuous_between_steps():
+    steps = [s for s in vm_trace().steps if s["kind"] in {"vm.step", "vm.jump"}]
+    for before, after in zip(steps, steps[1:]):
+        assert before["data"]["stack"] == after["data"]["stack_before"], before["title"]
+
+
+def test_vm_trace_reproduces_the_real_output():
+    tracer = vm_trace()
+    printed = [
+        line
+        for step in tracer.steps
+        for line in step["data"].get("printed", [])
+    ]
+    assert printed == run_program(assemble(PROGRAM)).output
+    assert printed, "the program printed nothing, so this proves little"
+
+
+def test_a_conditional_jump_reports_whether_it_jumped():
+    jumps = [s for s in vm_trace().steps if s["kind"] == "vm.jump"]
+    assert jumps, "the loop should have produced conditional jumps"
+    for step in jumps:
+        taken = step["data"]["result"]
+        moved = step["data"]["next_pc"] != step["data"]["pc"] + 1
+        assert taken is moved, step["title"]
+        assert step["quiz"]["kind"] == "choice"
+
+
+def test_the_loop_actually_loops_in_the_trace():
+    """A while loop must revisit the same instruction, which is the one
+    thing a straight-line listing can never show.
+    """
+    visited = [
+        s["data"]["pc"] for s in vm_trace().steps if s["kind"] in {"vm.step", "vm.jump"}
+    ]
+    assert len(visited) > len(set(visited)), "no instruction ran twice"
+
+
+def test_vm_halts_with_an_empty_stack():
+    halt = next(s for s in vm_trace().steps if s["kind"] == "vm.halt")
+    assert halt["data"]["stack"] == [], "operands were left behind"
+
+
+def test_a_runaway_program_truncates_instead_of_exploding():
+    """MAX_STEPS is 200,000; recording every one of those would be a
+    payload nobody can load.
+    """
+    tracer = Tracer(tool="compiler", limit=50)
+    run_program(assemble("int i = 0; while (i < 500) { i = i + 1; }"), tracer=tracer)
+    assert len(tracer.steps) == 50
+    assert tracer.truncated is True
+
+
+# -- endpoint ----------------------------------------------------------------
+
+def test_compiler_steps_endpoint_defaults_to_every_phase():
+    body = client.post("/api/compiler/steps", json={"source": PROGRAM}).json()
+    assert body["tool"] == "compiler"
+    kinds = {s["kind"].split(".")[0] for s in body["steps"]}
+    assert kinds == {"lex", "vm"}
+    assert body["context"]["source"] == PROGRAM
+    assert body["context"]["assembly"]
+
+
+def test_compiler_steps_endpoint_honours_the_phase_filter():
+    body = client.post(
+        "/api/compiler/steps", json={"source": PROGRAM, "phases": ["run"]}
+    ).json()
+    assert {s["kind"].split(".")[0] for s in body["steps"]} == {"vm"}
+    # Tokens still come back: the run phase needs them, and the UI shows
+    # them next to the instruction listing.
+    assert body["context"]["tokens"]
+
+
+def test_compiler_steps_endpoint_rejects_an_uninstrumented_phase():
+    response = client.post(
+        "/api/compiler/steps", json={"source": "int x = 1;", "phases": ["parse"]}
+    )
+    assert response.status_code == 422
+
+
+def test_compiler_steps_endpoint_survives_a_broken_program():
+    """Every other compiler route reports errors as payload, not as an
+    HTTP failure, and this one has to behave the same.
+    """
+    response = client.post(
+        "/api/compiler/steps", json={"source": "int x = @@@;", "phases": ["lex"]}
+    )
+    assert response.status_code == 200
+    assert response.json()["context"]["lex_errors"]

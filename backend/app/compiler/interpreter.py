@@ -86,7 +86,79 @@ class InterpreterResult:
         }
 
 
-def run_program(instructions: list[Instr]) -> InterpreterResult:
+def _describe(op: str, instr: Instr, before: list, after: list, jumped_to) -> str:
+    """One plain sentence about what this instruction just did to the
+    machine. The stack is the whole lesson here, so every description
+    says what went on or came off it.
+    """
+    if op == "PUSH_CONST":
+        return (
+            f"PUSH_CONST puts the literal {instr.arg} on top of the stack. "
+            f"Operands always arrive this way before anything consumes them."
+        )
+    if op == "LOAD":
+        return (
+            f"LOAD reads the variable '{instr.arg}' and pushes its current "
+            f"value, {_format_value(after[-1])}, onto the stack."
+        )
+    if op == "STORE":
+        return (
+            f"STORE pops {_format_value(before[-1])} off the stack and writes "
+            f"it into '{instr.arg}'. The stack shrinks by one."
+        )
+    if op in ("ADD", "SUB", "MUL", "DIV", "LT", "GT", "LE", "GE", "EQ", "NE", "AND", "OR"):
+        return (
+            f"{op} pops the top two values, {_format_value(before[-2])} and "
+            f"{_format_value(before[-1])}, and pushes the single result "
+            f"{_format_value(after[-1])}. Two off, one on: that is why a stack "
+            f"machine needs no registers."
+        )
+    if op in ("NEG", "NOT"):
+        return (
+            f"{op} replaces the top of the stack, {_format_value(before[-1])}, "
+            f"with {_format_value(after[-1])}."
+        )
+    if op == "LABEL":
+        return (
+            f"'{instr.arg}' is a label: a jump target, not an instruction. It "
+            f"does nothing at runtime and execution falls straight through."
+        )
+    if op == "JMP":
+        return (
+            f"JMP moves execution unconditionally to '{instr.arg}', which is "
+            f"instruction {jumped_to}. Nothing on the stack changes."
+        )
+    if op == "JMP_FALSE":
+        taken = jumped_to is not None
+        return (
+            f"JMP_FALSE pops the condition, which was "
+            f"{_format_value(before[-1])}. It is "
+            + (
+                f"false, so execution jumps to '{instr.arg}' (instruction "
+                f"{jumped_to}) and the branch body is skipped."
+                if taken
+                else "true, so no jump happens and execution carries straight on "
+                "into the branch body."
+            )
+        )
+    if op == "CALL":
+        return (
+            f"CALL runs '{instr.arg}' with {instr.arg2} argument(s) taken off "
+            f"the stack, then pushes its return value."
+        )
+    if op == "RET":
+        return "RET ends the program."
+    return f"{op} executes."
+
+
+def run_program(instructions: list[Instr], *, tracer=None) -> InterpreterResult:
+    """Execute the stack-machine program.
+
+    Pass a `tracer` (app.trace.Tracer) to record the machine state after
+    every instruction. All of it - the stack, the variables, the program
+    counter - already existed as locals here; without a tracer the only
+    thing that escaped was a step *count*.
+    """
     labels = {instr.arg: i for i, instr in enumerate(instructions) if instr.op == "LABEL"}
 
     stack: list = []
@@ -94,6 +166,9 @@ def run_program(instructions: list[Instr]) -> InterpreterResult:
     output: list[str] = []
     pc = 0
     steps = 0
+
+    if tracer:
+        tracer.phase("run")
 
     while pc < len(instructions):
         steps += 1
@@ -105,6 +180,9 @@ def run_program(instructions: list[Instr]) -> InterpreterResult:
 
         instr = instructions[pc]
         op = instr.op
+        before_stack = list(stack) if tracer else None
+        before_pc = pc
+        output_before = len(output)
 
         try:
             if op == "PUSH_CONST":
@@ -166,5 +244,56 @@ def run_program(instructions: list[Instr]) -> InterpreterResult:
             return InterpreterResult(
                 output, variables, steps, runtime_error="Division by zero."
             )
+
+        if tracer:
+            jumped_to = pc if pc != before_pc + 1 else None
+            printed = output[output_before:]
+            conditional = op == "JMP_FALSE"
+            tracer.step(
+                "vm.jump" if conditional else "vm.step",
+                title=f"{before_pc}: {instr.text()}",
+                explain=_describe(op, instr, before_stack, stack, jumped_to),
+                # A conditional branch is the one place the interesting
+                # answer is not the stack but whether control moved, so
+                # that is what it reports and asks about.
+                result=(jumped_to is not None) if conditional else [
+                    _format_value(v) for v in stack
+                ],
+                pc=before_pc,
+                next_pc=pc,
+                op=op,
+                text=instr.text(),
+                stack_before=[_format_value(v) for v in before_stack],
+                stack=[_format_value(v) for v in stack],
+                variables={
+                    name: _format_value(value)
+                    for name, value in variables.items()
+                    if not name.startswith("%")
+                },
+                printed=printed,
+                highlight={"rows": [before_pc]},
+                ask="Does this branch jump?" if conditional else None,
+            )
+
+    if tracer:
+        tracer.step(
+            "vm.halt",
+            title=f"Halted after {steps} instructions",
+            explain=(
+                f"Execution ran off the end of the program after {steps} "
+                f"instructions. The stack is "
+                + ("empty, as it should be once every operand has been "
+                   "consumed." if not stack else
+                   f"{[_format_value(v) for v in stack]}, which is left over.")
+            ),
+            result=steps,
+            stack=[_format_value(v) for v in stack],
+            variables={
+                name: _format_value(value)
+                for name, value in variables.items()
+                if not name.startswith("%")
+            },
+            output=list(output),
+        )
 
     return InterpreterResult(output, variables, steps)
