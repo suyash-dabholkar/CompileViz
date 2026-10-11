@@ -910,3 +910,178 @@ def test_compiler_steps_endpoint_survives_a_broken_program():
     )
     assert response.status_code == 200
     assert response.json()["context"]["lex_errors"]
+
+
+# ---------------------------------------------------------------------------
+# Grammar: FIRST, FOLLOW and the LL(1) table
+# ---------------------------------------------------------------------------
+
+from app.grammar.analyzer import analyze_grammar  # noqa: E402
+
+EXPRESSION_GRAMMAR = """E -> T E1
+E1 -> + T E1 | eps
+T -> F T1
+T1 -> * F T1 | eps
+F -> ( E ) | id"""
+
+AMBIGUOUS_GRAMMAR = """S -> a B | a C
+B -> b
+C -> c"""
+
+
+def grammar_trace(text: str = EXPRESSION_GRAMMAR) -> Tracer:
+    tracer = Tracer(tool="grammar.ll1", title="grammar")
+    analyze_grammar(text, tracer=tracer)
+    return tracer
+
+
+@pytest.mark.parametrize("text", [EXPRESSION_GRAMMAR, AMBIGUOUS_GRAMMAR])
+def test_grammar_tracing_changes_nothing(text):
+    assert analyze_grammar(text, tracer=Tracer(tool="g")) == analyze_grammar(text)
+
+
+@pytest.mark.parametrize("text", [EXPRESSION_GRAMMAR, AMBIGUOUS_GRAMMAR])
+def test_grammar_steps_satisfy_the_schema(text):
+    steps = grammar_trace(text).steps
+    assert steps
+    for index, step in enumerate(steps):
+        where = f"step {index} ({step['kind']})"
+        assert step["i"] == index, where
+        assert len(step["explain"]) >= 20, where
+        assert "result" in step["data"], where
+        assert set(step["highlight"]) == set(HIGHLIGHT_KEYS), where
+
+
+def test_first_and_follow_match_the_textbook():
+    """The classic expression grammar, straight out of the dragon book.
+    If these disagree the tool is teaching the wrong sets.
+    """
+    result = analyze_grammar(EXPRESSION_GRAMMAR)
+    assert result["first_sets"] == {
+        "E": ["(", "id"],
+        "E1": ["+", "ε"],
+        "F": ["(", "id"],
+        "T": ["(", "id"],
+        "T1": ["*", "ε"],
+    }
+    assert result["follow_sets"] == {
+        "E": ["$", ")"],
+        "E1": ["$", ")"],
+        "F": ["$", ")", "*", "+"],
+        "T": ["$", ")", "+"],
+        "T1": ["$", ")", "+"],
+    }
+
+
+def test_the_traced_sets_converge_to_the_final_answer():
+    """Folding the steps must land exactly on what /analyze returns, or
+    the Teach me view and the Result view disagree.
+    """
+    tracer = grammar_trace()
+    first, follow = {}, {}
+    for step in tracer.steps:
+        if step["kind"] == "first.production":
+            first[step["data"]["non_terminal"]] = step["data"]["current"]
+        elif step["kind"] in {"follow.init", "follow.production"}:
+            follow[step["data"]["non_terminal"]] = step["data"].get(
+                "current", step["data"]["result"]
+            )
+    assert first == tracer.context["first_sets"]
+    assert follow == tracer.context["follow_sets"]
+
+
+def test_sets_only_ever_grow():
+    """A fixed point that could shrink would never be guaranteed to
+    terminate, so this is the property the whole loop rests on.
+    """
+    seen = {}
+    for step in grammar_trace().steps:
+        if step["kind"] not in {"first.production", "follow.production"}:
+            continue
+        key = (step["kind"], step["data"]["non_terminal"])
+        current = set(step["data"]["current"])
+        assert seen.get(key, set()) <= current, key
+        seen[key] = current
+
+
+def test_a_reported_production_always_added_something():
+    """Most productions add nothing on most sweeps. Reporting those
+    would bury the few that matter, so an emitted step must have grown
+    a set.
+    """
+    for step in grammar_trace().steps:
+        if step["kind"] in {"first.production", "follow.production"}:
+            assert step["data"]["result"], step["title"]
+
+
+def test_each_fixpoint_ends_with_a_sweep_that_changed_nothing():
+    """Why the loop stops is half the lesson, so the final no-op sweep
+    is reported rather than silently skipped.
+    """
+    steps = grammar_trace().steps
+    for kind in ("first.sweep", "follow.sweep"):
+        sweeps = [s for s in steps if s["kind"] == kind]
+        assert sweeps, kind
+        assert sweeps[-1]["data"]["result"] == 0, kind
+        assert all(s["data"]["result"] > 0 for s in sweeps[:-1]), kind
+
+
+def test_table_rows_rebuild_the_real_table():
+    tracer = grammar_trace()
+    rebuilt = {}
+    for step in tracer.steps:
+        if step["kind"] != "ll1.production":
+            continue
+        row = rebuilt.setdefault(step["data"]["non_terminal"], {})
+        for terminal in step["data"]["result"]:
+            row.setdefault(terminal, []).append(step["data"]["production"])
+    assert rebuilt == tracer.context["ll1_table"]["table"]
+
+
+def test_a_conflict_is_reported_as_its_own_step():
+    tracer = grammar_trace(AMBIGUOUS_GRAMMAR)
+    conflicts = [s for s in tracer.steps if s["kind"] == "ll1.conflict"]
+    assert conflicts, "the ambiguous grammar produced no conflict step"
+    assert len(conflicts) == len(tracer.context["ll1_table"]["conflicts"])
+    done = next(s for s in tracer.steps if s["kind"] == "ll1.done")
+    assert done["data"]["result"] == len(conflicts)
+
+
+def test_an_ll1_grammar_ends_with_no_conflicts():
+    done = next(s for s in grammar_trace().steps if s["kind"] == "ll1.done")
+    assert done["data"]["result"] == 0
+
+
+def test_grammar_quizzes_draw_from_the_terminals():
+    tracer = grammar_trace()
+    assert tracer.universe["kind"] == "terminal"
+    assert "$" in tracer.universe["items"]
+    for step in tracer.steps:
+        if step["quiz"] and step["quiz"]["kind"] == "set":
+            assert set(step["quiz"]["answer"]) <= set(step["quiz"]["universe"]), (
+                step["title"]
+            )
+
+
+def test_grammar_steps_endpoint_matches_the_analyze_endpoint():
+    body = {"grammar": EXPRESSION_GRAMMAR}
+    steps = client.post("/api/grammar/steps", json=body).json()
+    plain = client.post("/api/grammar/analyze", json=body).json()
+    assert steps["tool"] == "grammar.ll1"
+    for key in ("first_sets", "follow_sets", "ll1_table", "start_symbol"):
+        assert steps["context"][key] == plain[key], key
+
+
+def test_an_empty_right_hand_side_is_a_valid_epsilon_production():
+    """"E ->" is not a syntax error: an empty right-hand side is how
+    this grammar format spells an epsilon production.
+    """
+    body = client.post("/api/grammar/steps", json={"grammar": "E ->"}).json()
+    assert body["context"]["first_sets"] == {"E": ["ε"]}
+
+
+def test_grammar_steps_endpoint_rejects_a_bad_grammar():
+    response = client.post(
+        "/api/grammar/steps", json={"grammar": "this line has no arrow"}
+    )
+    assert response.status_code == 400

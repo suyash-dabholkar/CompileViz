@@ -24,6 +24,7 @@ from typing import Any, Literal
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.api.trace_schema import TraceOut
 from app.automata import (
     RegexSyntaxError,
     build_direct_dfa,
@@ -31,7 +32,6 @@ from app.automata import (
     build_thompson_nfa,
     compare_construction_methods,
 )
-from app.api.trace_schema import TraceOut
 from app.automata.minimization import minimize_dfa
 from app.trace import Tracer
 
@@ -168,9 +168,13 @@ def indirect_dfa_endpoint(request: RegexRequest) -> dict:
 
 @router.post("/thompson", response_model=NFAOut)
 def thompson_nfa_endpoint(request: RegexRequest) -> dict:
-    """Build just the Thompson NFA, before subset construction. The
-    frontend uses this for the "here's the messy first draft" half of
-    the side-by-side animation.
+    """Build just the Thompson NFA, before subset construction.
+
+    No part of the frontend calls this: the Teach me view renders the
+    NFA from the trace that /steps already returns, rather than paying
+    for a second request to rebuild it. Kept as a public API route
+    anyway, since "give me the NFA on its own" is a reasonable thing to
+    ask /docs for, and it is covered by tests.
     """
     try:
         nfa = build_thompson_nfa(request.pattern)
