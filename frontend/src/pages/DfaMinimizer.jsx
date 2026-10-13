@@ -4,7 +4,9 @@ import PresetPicker from "../components/PresetPicker";
 import { Panel } from "../components/ui/Panel";
 import { Button } from "../components/ui/Button";
 import { REGEX_PRESETS } from "../presets/presets";
-import { minimizeDfa } from "../api/minimizeApi";
+import TraceViewer from "../components/TraceViewer";
+import MinimizeSteps from "../components/steps/MinimizeSteps";
+import { fetchMinimizeSteps, minimizeDfa } from "../api/minimizeApi";
 import { extractErrorMessage } from "../api/client";
 
 const DEFAULT_PATTERN = "(a|b)*abb";
@@ -44,6 +46,8 @@ export default function DfaMinimizer() {
   const [pattern, setPattern] = useState(DEFAULT_PATTERN);
   const [method, setMethod] = useState("indirect");
   const [result, setResult] = useState(null);
+  const [trace, setTrace] = useState(null);
+  const [mode, setMode] = useState("result");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
@@ -52,11 +56,16 @@ export default function DfaMinimizer() {
     setLoading(true);
     setError(null);
     try {
-      const data = await minimizeDfa(pattern, method);
+      const [data, steps] = await Promise.all([
+        minimizeDfa(pattern, method),
+        fetchMinimizeSteps(pattern, method),
+      ]);
       setResult(data);
+      setTrace(steps);
     } catch (err) {
       setError(extractErrorMessage(err));
       setResult(null);
+      setTrace(null);
     } finally {
       setLoading(false);
     }
@@ -111,7 +120,44 @@ export default function DfaMinimizer() {
         </div>
       )}
 
-      {result && (
+      {trace && (
+        <div className="flex items-center gap-3">
+          <div className="flex" role="tablist" aria-label="View">
+            {[
+              ["result", "Result"],
+              ["teach", "Teach me"],
+            ].map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                role="tab"
+                aria-selected={mode === id}
+                onClick={() => setMode(id)}
+                className={`-ml-px border px-3 py-1.5 font-mono text-xs uppercase tracking-wide transition-colors first:ml-0 ${
+                  mode === id
+                    ? "border-ink bg-ink text-paper"
+                    : "border-graph bg-white text-ink-soft hover:bg-paper"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <p className="text-xs text-ink-faint">
+            {mode === "result"
+              ? "Before and after, with every refinement round listed."
+              : `${trace.steps.length} steps. Arrow keys to walk it.`}
+          </p>
+        </div>
+      )}
+
+      {mode === "teach" && trace && (
+        <TraceViewer key={`${pattern}-${method}`} trace={trace}>
+          {(props) => <MinimizeSteps {...props} />}
+        </TraceViewer>
+      )}
+
+      {mode === "result" && result && (
         <>
           <Panel variant="quiet" className="!p-0">
             <div className="grid grid-cols-1 sm:grid-cols-2 divide-y sm:divide-y-0 sm:divide-x divide-graph">

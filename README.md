@@ -17,16 +17,26 @@ Built for BCSE307P (Compiler Design Lab), VIT Vellore.
 > first time, that's the server waking up (30-60 seconds), not a bug,
 > give it a moment and it'll be fast from then on.
 
-## Project status: complete
+## Project status
 
 Every milestone on `docs/ROADMAP.md` is done, all four tools below are
 live and working end to end.
+
+Currently in progress on `feature/interactive-steps`: a **Teach me**
+mode for each tool. Every tool keeps its existing instant-answer view
+and gains a toggle that walks the same algorithm one step at a time,
+with a plain-English explanation of which textbook rule fired at each
+step and an optional quiz that asks you to predict the next one. See
+`docs/ROADMAP.md` for what is covered so far.
 
 ## Screenshots
 
 ### Regex-to-Automata Playground
 Direct-method and indirect-method DFA construction, side by side, with
-a state-count and build-time comparison.
+a state-count and build-time comparison. **Teach me** walks either
+method: position numbering, the nullable/firstpos/lastpos table and
+each followpos rule for the direct method; Thompson fragments and the
+move / eps-closure split for the indirect one.
 
 ![Regex Playground](docs/screenshots/regex-playground.png)
 

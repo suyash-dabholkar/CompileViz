@@ -4,7 +4,9 @@ import PresetPicker from "../components/PresetPicker";
 import { Panel } from "../components/ui/Panel";
 import { Button } from "../components/ui/Button";
 import { GRAMMAR_PRESETS } from "../presets/presets";
-import { analyzeGrammar } from "../api/grammarApi";
+import TraceViewer from "../components/TraceViewer";
+import GrammarSteps from "../components/steps/GrammarSteps";
+import { analyzeGrammar, fetchGrammarSteps } from "../api/grammarApi";
 import { extractErrorMessage } from "../api/client";
 
 const DEFAULT_GRAMMAR = `E -> T E'
@@ -16,6 +18,8 @@ F -> ( E ) | id`;
 export default function GrammarTool() {
   const [grammarText, setGrammarText] = useState(DEFAULT_GRAMMAR);
   const [result, setResult] = useState(null);
+  const [trace, setTrace] = useState(null);
+  const [mode, setMode] = useState("result");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
@@ -24,11 +28,16 @@ export default function GrammarTool() {
     setLoading(true);
     setError(null);
     try {
-      const data = await analyzeGrammar(grammarText);
+      const [data, steps] = await Promise.all([
+        analyzeGrammar(grammarText),
+        fetchGrammarSteps(grammarText),
+      ]);
       setResult(data);
+      setTrace(steps);
     } catch (err) {
       setError(extractErrorMessage(err));
       setResult(null);
+      setTrace(null);
     } finally {
       setLoading(false);
     }
@@ -70,7 +79,44 @@ export default function GrammarTool() {
         </div>
       )}
 
-      {result && (
+      {trace && (
+        <div className="flex items-center gap-3">
+          <div className="flex" role="tablist" aria-label="View">
+            {[
+              ["result", "Result"],
+              ["teach", "Teach me"],
+            ].map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                role="tab"
+                aria-selected={mode === id}
+                onClick={() => setMode(id)}
+                className={`-ml-px border px-3 py-1.5 font-mono text-xs uppercase tracking-wide transition-colors first:ml-0 ${
+                  mode === id
+                    ? "border-ink bg-ink text-paper"
+                    : "border-graph bg-white text-ink-soft hover:bg-paper"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <p className="text-xs text-ink-faint">
+            {mode === "result"
+              ? "The converged sets and the finished table."
+              : `${trace.steps.length} steps. Arrow keys to walk it.`}
+          </p>
+        </div>
+      )}
+
+      {mode === "teach" && trace && (
+        <TraceViewer key={grammarText} trace={trace}>
+          {(props) => <GrammarSteps {...props} />}
+        </TraceViewer>
+      )}
+
+      {mode === "result" && result && (
         <>
           <div
             className={`flex items-center gap-2 px-3 py-2 text-sm font-medium ${

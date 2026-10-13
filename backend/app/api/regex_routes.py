@@ -13,15 +13,18 @@ Mounted at /api/regex in app.main, so the full paths are:
     POST /api/regex/thompson   -> the raw NFA, before subset construction
     POST /api/regex/match      -> test one string against one pattern
     POST /api/regex/compare    -> the Milestone 3 benchmark, both methods at once
+    POST /api/regex/steps      -> the same construction, step by step, for the
+                                  teaching UI
 """
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.api.trace_schema import TraceOut
 from app.automata import (
     RegexSyntaxError,
     build_direct_dfa,
@@ -30,6 +33,7 @@ from app.automata import (
     compare_construction_methods,
 )
 from app.automata.minimization import minimize_dfa
+from app.trace import Tracer
 
 router = APIRouter()
 
@@ -37,6 +41,7 @@ router = APIRouter()
 # ---------------------------------------------------------------------------
 # Request models
 # ---------------------------------------------------------------------------
+
 
 class RegexRequest(BaseModel):
     pattern: str = Field(..., min_length=1, max_length=200)
@@ -64,9 +69,15 @@ class MinimizeRequest(BaseModel):
     method: Literal["direct", "indirect"] = "indirect"
 
 
+class StepsRequest(BaseModel):
+    pattern: str = Field(..., min_length=1, max_length=200)
+    method: Literal["direct", "indirect"] = "direct"
+
+
 # ---------------------------------------------------------------------------
 # Response models
 # ---------------------------------------------------------------------------
+
 
 class DFATransitionOut(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
@@ -124,13 +135,16 @@ class MinimizeOut(BaseModel):
     method: str
     original: DFAOut
     minimized: DFAOut
-    state_mapping: dict[str, int]  # original state index (as string) -> minimized state index
+    state_mapping: dict[
+        str, int
+    ]  # original state index (as string) -> minimized state index
     partition_trace: list[list[list[int]]]
 
 
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
+
 
 @router.post("/direct", response_model=DFAOut)
 def direct_dfa_endpoint(request: RegexRequest) -> dict:
@@ -154,9 +168,13 @@ def indirect_dfa_endpoint(request: RegexRequest) -> dict:
 
 @router.post("/thompson", response_model=NFAOut)
 def thompson_nfa_endpoint(request: RegexRequest) -> dict:
-    """Build just the Thompson NFA, before subset construction. The
-    frontend uses this for the "here's the messy first draft" half of
-    the side-by-side animation.
+    """Build just the Thompson NFA, before subset construction.
+
+    No part of the frontend calls this: the Teach me view renders the
+    NFA from the trace that /steps already returns, rather than paying
+    for a second request to rebuild it. Kept as a public API route
+    anyway, since "give me the NFA on its own" is a reasonable thing to
+    ask /docs for, and it is covered by tests.
     """
     try:
         nfa = build_thompson_nfa(request.pattern)
@@ -197,6 +215,59 @@ def compare_endpoint(request: CompareRequest) -> dict:
     except RegexSyntaxError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return result.to_dict()
+
+
+@router.post("/steps", response_model=TraceOut)
+def steps_endpoint(request: StepsRequest) -> dict:
+    """Build a DFA and return every intermediate step of the construction.
+
+    This is the teaching counterpart to /direct. That endpoint answers
+    "what is the DFA"; this one answers "how was it built" - the position
+    numbering, the nullable/firstpos/lastpos table, each followpos rule
+    application, and the transition table filled one cell at a time.
+
+    A separate route rather than a flag on /direct: /direct has a strict
+    DFAOut response_model, so an optional trace field would add
+    "trace": null to every existing response for no benefit.
+    """
+    build_fn, label = (
+        (build_direct_dfa, "Direct method (followpos)")
+        if request.method == "direct"
+        else (build_indirect_dfa, "Indirect method (Thompson + subset construction)")
+    )
+    tracer = Tracer(
+        tool=f"regex.{request.method}",
+        title=f"{label} for {request.pattern}",
+    )
+    try:
+        build_fn(request.pattern, tracer=tracer)
+    except RegexSyntaxError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return tracer.to_dict()
+
+
+@router.post("/minimize/steps", response_model=TraceOut)
+def minimize_steps_endpoint(request: MinimizeRequest) -> dict:
+    """Minimize a DFA and return every round of partition refinement.
+
+    The DFA is built without a tracer on purpose: this trace is about
+    minimization, and mixing in how the DFA was constructed would bury
+    the lesson. Use /steps for that half.
+    """
+    build_fn = build_direct_dfa if request.method == "direct" else build_indirect_dfa
+    try:
+        dfa = build_fn(request.pattern)
+    except RegexSyntaxError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    tracer = Tracer(
+        tool="dfa.minimize",
+        title=f"Partition refinement for {request.pattern}",
+    )
+    minimize_dfa(dfa, tracer=tracer)
+    tracer.context["pattern"] = request.pattern
+    tracer.context["method"] = request.method
+    return tracer.to_dict()
 
 
 @router.post("/minimize", response_model=MinimizeOut)

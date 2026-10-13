@@ -2,12 +2,14 @@ import { useRef, useState } from "react";
 import Editor from "@monaco-editor/react";
 import AstTreeView from "../components/AstTreeView";
 import PresetPicker from "../components/PresetPicker";
+import TraceViewer from "../components/TraceViewer";
+import CompilerSteps from "../components/steps/CompilerSteps";
 import { Panel } from "../components/ui/Panel";
 import { Button } from "../components/ui/Button";
 import { PROGRAM_PRESETS } from "../presets/presets";
 import { registerToyLanguage, registerToyTheme } from "../editor/toyLanguage";
 import { buildErrorMarkers, MARKER_OWNER } from "../editor/errorMarkers";
-import { runProgram, tokenizeSource } from "../api/compilerApi";
+import { fetchCompilerSteps, runProgram, tokenizeSource } from "../api/compilerApi";
 import { extractErrorMessage } from "../api/client";
 
 const DEFAULT_SOURCE = `int x;
@@ -69,6 +71,12 @@ export default function CompilerPipeline() {
   const [source, setSource] = useState(DEFAULT_SOURCE);
   const [lexResult, setLexResult] = useState(null);
   const [analysis, setAnalysis] = useState(null);
+  const [trace, setTrace] = useState(null);
+  const [mode, setMode] = useState("result");
+  // Which phase the trace covers. Unlike the other pages this is chosen
+  // before fetching, not after: a full execution trace of a loop is
+  // hundreds of steps, so there is no point requesting both every time.
+  const [teachPhase, setTeachPhase] = useState("lex");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
@@ -102,17 +110,33 @@ export default function CompilerPipeline() {
     clearMarkers();
   }
 
+  async function handlePhaseChange(phase) {
+    setTeachPhase(phase);
+    if (!trace) return;
+    // Refetch rather than making the user press Compile again. Only one
+    // phase is ever fetched at a time because an execution trace of a
+    // loop runs to hundreds of steps and is wasted work when it is the
+    // scanner you came to look at.
+    try {
+      setTrace(await fetchCompilerSteps(source, [phase]));
+    } catch (err) {
+      setError(extractErrorMessage(err));
+    }
+  }
+
   async function handleCompile(e) {
     e?.preventDefault();
     setLoading(true);
     setError(null);
     try {
-      const [lex, analyzed] = await Promise.all([
+      const [lex, analyzed, steps] = await Promise.all([
         tokenizeSource(source),
         runProgram(source),
+        fetchCompilerSteps(source, [teachPhase]),
       ]);
       setLexResult(lex);
       setAnalysis(analyzed);
+      setTrace(steps);
 
       const monaco = monacoRef.current;
       const editor = editorRef.current;
@@ -132,6 +156,7 @@ export default function CompilerPipeline() {
       setError(extractErrorMessage(err));
       setLexResult(null);
       setAnalysis(null);
+      setTrace(null);
       clearMarkers();
     } finally {
       setLoading(false);
@@ -190,7 +215,74 @@ export default function CompilerPipeline() {
         </div>
       )}
 
-      {lexResult && (
+      {trace && (
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex" role="tablist" aria-label="View">
+            {[
+              ["result", "Result"],
+              ["teach", "Teach me"],
+            ].map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                role="tab"
+                aria-selected={mode === id}
+                onClick={() => setMode(id)}
+                className={`-ml-px border px-3 py-1.5 font-mono text-xs uppercase tracking-wide transition-colors first:ml-0 ${
+                  mode === id
+                    ? "border-ink bg-ink text-paper"
+                    : "border-graph bg-white text-ink-soft hover:bg-paper"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {mode === "teach" && (
+            <>
+              <div className="flex" role="tablist" aria-label="Phase">
+                {[
+                  ["lex", "Lexing"],
+                  ["run", "Execution"],
+                ].map(([id, label]) => (
+                  <button
+                    key={id}
+                    type="button"
+                    role="tab"
+                    aria-selected={teachPhase === id}
+                    onClick={() => handlePhaseChange(id)}
+                    className={`-ml-px border px-3 py-1.5 text-xs transition-colors first:ml-0 ${
+                      teachPhase === id
+                        ? "border-blueprint bg-blueprint-light text-blueprint"
+                        : "border-graph bg-white text-ink-soft hover:bg-paper"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <p className="text-xs text-ink-faint">
+                {trace.steps.length} steps. Arrow keys to walk it.
+              </p>
+            </>
+          )}
+
+          {mode === "result" && (
+            <p className="text-xs text-ink-faint">
+              All six phases at once, from tokens to program output.
+            </p>
+          )}
+        </div>
+      )}
+
+      {mode === "teach" && trace && (
+        <TraceViewer key={`${teachPhase}-${trace.steps.length}`} trace={trace}>
+          {(props) => <CompilerSteps {...props} />}
+        </TraceViewer>
+      )}
+
+      {mode === "result" && lexResult && (
         <Panel
           title="Lexical analysis"
           subtitle={`${lexResult.tokens.length} tokens${
@@ -235,7 +327,7 @@ export default function CompilerPipeline() {
         </Panel>
       )}
 
-      {analysis && (
+      {mode === "result" && analysis && (
         <Panel
           title="Syntax analysis"
           subtitle={analysis.parse_errors.length > 0 ? `${analysis.parse_errors.length} error(s)` : "no syntax errors"}
@@ -245,7 +337,7 @@ export default function CompilerPipeline() {
         </Panel>
       )}
 
-      {analysis && (
+      {mode === "result" && analysis && (
         <Panel
           title="Semantic analysis"
           subtitle={
@@ -297,7 +389,7 @@ export default function CompilerPipeline() {
         </Panel>
       )}
 
-      {analysis && (
+      {mode === "result" && analysis && (
         <Panel
           title="Intermediate code (three-address code)"
           subtitle={`${analysis.original.length} instruction${analysis.original.length === 1 ? "" : "s"}`}
@@ -308,7 +400,7 @@ export default function CompilerPipeline() {
         </Panel>
       )}
 
-      {analysis && (
+      {mode === "result" && analysis && (
         <div>
           <h2 className="text-sm font-medium text-ink-soft mb-2">
             Optimization
@@ -342,7 +434,7 @@ export default function CompilerPipeline() {
         </div>
       )}
 
-      {analysis && (
+      {mode === "result" && analysis && (
         <Panel
           title="Code generation (stack-machine assembly)"
           subtitle={`${analysis.assembly.length} instruction${analysis.assembly.length === 1 ? "" : "s"}`}
@@ -353,7 +445,7 @@ export default function CompilerPipeline() {
         </Panel>
       )}
 
-      {analysis && (
+      {mode === "result" && analysis && (
         <Panel title="Program output">
           <div className="bg-ink -m-4 p-4 font-mono text-sm min-h-[3rem]">
             {analysis.run_result.output.length === 0 && !analysis.run_result.runtime_error && (

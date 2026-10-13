@@ -155,6 +155,72 @@ const MAX_HEIGHT = 720;
  * Re-fits the camera whenever the node set actually changes, instead of
  * relying only on react-flow's `fitView` prop, which fits exactly once
 /**
+ * Applies a step trace's highlight to already-laid-out nodes and edges.
+ *
+ * Kept separate from buildNodes/buildEdges, and memoized separately, so
+ * that stepping through a trace is a cheap style remap over the existing
+ * layout rather than a relayout. Crucially it also does NOT feed into
+ * graphIdentity below, so a step change is a plain prop update and the
+ * camera stays where it is instead of refitting on every keypress.
+ *
+ * `highlight` is { states, edges, discovered }:
+ *   - states     the step's current state(s), amber
+ *   - edges      the step's current edge ids ("0-2"), amber
+ *   - discovered the states the trace has reached so far, full opacity
+ * Everything else dims. With no highlight at all, nothing changes, which
+ * is what the existing non-trace call sites rely on.
+ */
+const DIM = 0.18;
+
+function applyHighlight(nodes, edges, highlight) {
+  if (!highlight) return { nodes, edges };
+
+  const current = new Set((highlight.states ?? []).map(String));
+  const activeEdges = new Set(highlight.edges ?? []);
+  // No `discovered` key means "everything is in play", so a caller can
+  // highlight a step without also tracking reveal order.
+  const discovered = highlight.discovered
+    ? new Set(highlight.discovered.map(String))
+    : null;
+
+  const seen = (id) => discovered === null || discovered.has(id) || current.has(id);
+
+  return {
+    nodes: nodes.map((node) => {
+      const isCurrent = current.has(node.id);
+      return {
+        ...node,
+        style: {
+          ...node.style,
+          opacity: seen(node.id) ? 1 : DIM,
+          border: isCurrent ? "3px solid #E8A33D" : node.style.border,
+          background: isCurrent ? "#FCF1DE" : node.style.background,
+        },
+      };
+    }),
+    edges: edges.map((edge) => {
+      const isCurrent = activeEdges.has(edge.id);
+      const visible = seen(edge.source) && seen(edge.target);
+      return {
+        ...edge,
+        animated: isCurrent,
+        style: {
+          ...edge.style,
+          opacity: isCurrent ? 1 : visible ? 1 : DIM,
+          stroke: isCurrent ? "#C6821F" : edge.style.stroke,
+          strokeWidth: isCurrent ? 2.5 : undefined,
+        },
+        labelStyle: {
+          ...edge.labelStyle,
+          fill: isCurrent ? "#C6821F" : edge.labelStyle.fill,
+          opacity: visible ? 1 : DIM,
+        },
+      };
+    }),
+  };
+}
+
+/**
  * A stable identity for the current DFA's shape, used as a React `key`
  * to force ReactFlow to fully remount whenever a new pattern is built.
  *
@@ -170,8 +236,8 @@ function graphIdentity(dfa) {
   return `${dfa.num_states}-${dfa.start}-${dfa.accepting.join(",")}`;
 }
 
-function DfaGraphInner({ dfa, height: baseHeight }) {
-  const { nodes, edges, height } = useMemo(() => {
+function DfaGraphInner({ dfa, height: baseHeight, highlight }) {
+  const { nodes: baseNodes, edges: baseEdges, height } = useMemo(() => {
     if (!dfa) return { nodes: [], edges: [], height: baseHeight };
     const { positions, maxLevelSize } = layoutDfa(dfa);
     // Give large graphs proportionally more vertical room instead of
@@ -184,6 +250,11 @@ function DfaGraphInner({ dfa, height: baseHeight }) {
       height: Math.min(MAX_HEIGHT, Math.max(baseHeight, suggestedHeight)),
     };
   }, [dfa, baseHeight]);
+
+  const { nodes, edges } = useMemo(
+    () => applyHighlight(baseNodes, baseEdges, highlight),
+    [baseNodes, baseEdges, highlight],
+  );
 
   if (!dfa) return null;
 
@@ -212,6 +283,6 @@ function DfaGraphInner({ dfa, height: baseHeight }) {
   );
 }
 
-export default function DfaGraph({ dfa, height = MIN_HEIGHT }) {
-  return <DfaGraphInner dfa={dfa} height={height} />;
+export default function DfaGraph({ dfa, height = MIN_HEIGHT, highlight = null }) {
+  return <DfaGraphInner dfa={dfa} height={height} highlight={highlight} />;
 }

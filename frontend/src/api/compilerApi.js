@@ -29,3 +29,10 @@ export async function runProgram(source) {
   const { data } = await apiClient.post("/api/compiler/codegen", { source });
   return data;
 }
+
+// The teaching counterpart. `phases` picks which parts of the pipeline
+// are instrumented ("lex", "run"); the rest still only report results.
+export async function fetchCompilerSteps(source, phases) {
+  const { data } = await apiClient.post("/api/compiler/steps", { source, phases });
+  return data;
+}

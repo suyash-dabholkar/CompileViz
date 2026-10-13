@@ -15,6 +15,9 @@ Mounted at /api/compiler in app.main, so the full paths are:
                                      pass's before/after TAC (constant
                                      folding, common subexpression
                                      elimination, dead code elimination)
+    POST /api/compiler/steps   -> the same work, but step by step for
+                                     the teaching UI (lexing and
+                                     execution so far)
     POST /api/compiler/codegen -> the above, plus the generated
                                      stack-machine assembly AND the
                                      result of actually running it
@@ -29,11 +32,12 @@ top of what's here rather than adding new compiler phases.
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
+from app.api.trace_schema import TraceOut
 from app.compiler.codegen import generate_code
 from app.compiler.interpreter import run_program
 from app.compiler.lexer import tokenize
@@ -41,6 +45,7 @@ from app.compiler.optimizer import optimize as run_optimizer
 from app.compiler.parser import parse
 from app.compiler.semantic_analyzer import analyze
 from app.compiler.tac_generator import generate_tac
+from app.trace import Tracer
 
 router = APIRouter()
 
@@ -292,3 +297,42 @@ def codegen_endpoint(request: SourceRequest) -> dict:
         "assembly": [i.to_dict() for i in assembly],
         "run_result": run_result.to_dict(),
     }
+
+
+class CompilerStepsRequest(BaseModel):
+    source: str = Field(..., max_length=10000)
+    # Only lexing and execution are instrumented so far. Declaring the
+    # literal means asking for an uninstrumented phase is a clear 422
+    # rather than a silently empty trace.
+    phases: list[Literal["lex", "run"]] = ["lex", "run"]
+
+
+@router.post("/steps", response_model=TraceOut)
+def compiler_steps_endpoint(request: CompilerStepsRequest) -> dict:
+    """Run the pipeline and return the intermediate steps.
+
+    `phases` keeps this endpoint useful while the remaining four phases
+    are still uninstrumented, and keeps a long execution trace out of
+    the way when it is the scanner you want to look at.
+
+    Like every other route here, a broken program is a normal result:
+    the trace just ends where the compiler gave up.
+    """
+    tracer = Tracer(tool="compiler", title="Compiler pipeline")
+
+    lex_result = tokenize(
+        request.source, tracer=tracer if "lex" in request.phases else None
+    )
+    tracer.context["source"] = request.source
+    tracer.context["tokens"] = [t.to_dict() for t in lex_result.tokens]
+    tracer.context["lex_errors"] = [e.to_dict() for e in lex_result.errors]
+
+    if "run" in request.phases:
+        parse_result = parse(lex_result.tokens)
+        optimized = run_optimizer(generate_tac(parse_result.program))
+        assembly = generate_code(optimized.after_dce)
+        tracer.context["assembly"] = [i.to_dict() for i in assembly]
+        tracer.context["parse_errors"] = [e.to_dict() for e in parse_result.errors]
+        run_program(assembly, tracer=tracer)
+
+    return tracer.to_dict()

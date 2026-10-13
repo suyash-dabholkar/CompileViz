@@ -45,8 +45,37 @@ merged into `main` via a pull request, and tagged once it lands.
       README screenshots, final docs, a full pass for rough edges
       before the demo.
 
-## Project complete
+## Milestone 18 — Teach me mode (in progress)
 
-Every milestone above is done. The full write-up for the course
+The tools showed answers, not process: every algorithm was a single
+pass that returned only its final result and discarded the working.
+A shared tracer (`backend/app/trace.py`) now records each step of the
+real algorithms, and one shared stepper UI
+(`frontend/src/components/TraceViewer.jsx`) walks them with a
+plain-English explanation per step and an optional predict-the-answer
+quiz.
+
+- [x] Shared trace core, stepper, quiz, and `/steps` endpoints
+- [x] **Regex, direct method** — desugaring, position numbering,
+      nullable/firstpos/lastpos per node, each followpos rule, the
+      transition table cell by cell
+- [x] **Regex, indirect method** — Thompson fragment per AST node, then
+      `move` and eps-closure as separate steps
+- [x] **DFA minimization** — each group examined, with the signature
+      table showing which symbol split it (or why it survived)
+- [x] **Lexing** — the competing patterns at each offset and the
+      winning DFA's walk character by character
+- [x] **Execution** — the stack machine instruction by instruction
+- [x] **Grammar** — FIRST and FOLLOW fixed points sweep by sweep, and
+      the LL(1) table filled production by production
+- [ ] **Interactive LL(1) parse** — the stack / input / action table,
+      driven by the student
+- [ ] Parsing, semantic analysis, TAC generation and optimization —
+      these four need real instrumentation rather than exposing state
+      that already exists
+
+## Earlier milestones
+
+Milestones 1-17 above are done. The full write-up for the course
 report lives in `Visual_Compiler_PRD.pdf` / the generated report
 document, this file is the build history, not the report itself.
