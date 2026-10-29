@@ -1,0 +1,25 @@
+html { scroll-behavior: smooth; }
+
+::selection { background: #E8A33D; color: #16213A; }
+
+/* anchored phase sections clear the sticky strip */
+[id^="phase-"] { scroll-margin-top: 130px; }
+
+/* table row hover, but never override coloured cells (e.g. LL(1) conflicts) */
+tbody tr:hover > td:not([class*="bg-"]) { background-color: #E8F0FA; }
+
+@keyframes wake-slide {
+  from { transform: translateX(-100%); }
+  to   { transform: translateX(300%); }
+}
+
+@keyframes panel-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: none; }
+}
+.phase-section { animation: panel-in 0.35s ease-out both; }
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .phase-section, [style*="wake-slide"] { animation: none !important; }
+}
