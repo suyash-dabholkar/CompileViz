@@ -1,0 +1,31 @@
+/* sidebar blueprint grid, slowly drifting */
+.sidebar-grid {
+  background-image:
+    linear-gradient(to right, rgba(255,255,255,.045) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255,255,255,.045) 1px, transparent 1px);
+  background-size: 24px 24px;
+  animation: grid-drift 40s linear infinite;
+  mask-image: linear-gradient(to bottom, #000 0%, transparent 85%);
+}
+@keyframes grid-drift { to { background-position: 24px 24px; } }
+
+/* logo arrow pulses like a token moving between states */
+.logo-flow path { stroke-dasharray: 4 3; animation: flow 1.2s linear infinite; }
+@keyframes flow { to { stroke-dashoffset: -14; } }
+
+/* page switch */
+.page-enter { animation: page-in .38s cubic-bezier(.2,.8,.2,1) both; }
+@keyframes page-in {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* buttons: tactile press */
+button:not(:disabled):active { transform: translateY(1px) scale(.985); }
+
+/* thin scrollbars */
+* { scrollbar-width: thin; scrollbar-color: #B8C2D4 transparent; }
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-grid, .logo-flow path, .page-enter { animation: none !important; }
+}
